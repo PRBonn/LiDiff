@@ -1,0 +1,37 @@
+experiment:
+    id: Refine_Up6
+
+##Data
+data:
+    data_dir: './Datasets/SemanticKITTI'
+    resolution: 0.05
+    dataloader: 'KITTI'
+    split: 'train'
+    train: [ '00', '01', '02', '03', '04', '05', '06', '07', '09', '10' ]
+    validation: [ '08' ]
+    test: ['11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21']
+    scan_window: 40
+    num_points: 180000
+
+##Training
+train:
+    uncond_prob: 0.1
+    uncond_w: 4.
+    n_gpus: 1
+    num_workers: 4
+    max_epoch: 100
+    lr: 0.0001
+    batch_size: 8
+    decay_lr: 1.0e-4
+    mode: 'refine'
+    up_factor: 6
+
+diff:
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_func: 'linear'
+    t_steps: 1000
+
+##Network
+model:
+    out_dim: 96
