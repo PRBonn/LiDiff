@@ -1,4 +1,4 @@
-# LiDAR Diffusion
+# Scaling Diffusion Models to Real-World 3D LiDAR Scene Completion
 
 Installing python packages pre-requisites:
 
