@@ -1,7 +1,7 @@
 import numpy as np
 import MinkowskiEngine as ME
 import torch
-import pcdiff.models.minkunet as minknet
+import lidiff.models.minkunet as minknet
 import open3d as o3d
 from diffusers import DPMSolverMultistepScheduler
 from pytorch_lightning.core.lightning import LightningModule

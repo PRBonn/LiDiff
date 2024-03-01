@@ -9,8 +9,8 @@ import MinkowskiEngine as ME
 import torch
 import yaml
 
-import pcdiff.datasets.datasets_refine as datasets
-import pcdiff.models.models_refine as models
+import lidiff.datasets.datasets_refine as datasets
+import lidiff.models.models_refine as models
 
 
 @click.command()

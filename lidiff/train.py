@@ -10,8 +10,8 @@ import torch
 import yaml
 import MinkowskiEngine as ME
 
-import pcdiff.datasets.datasets as datasets
-import pcdiff.models.models as models
+import lidiff.datasets.datasets as datasets
+import lidiff.models.models as models
 
 def set_deterministic():
     np.random.seed(42)

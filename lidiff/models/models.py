@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pcdiff.models.minkunet as minknet
+import lidiff.models.minkunet as minknet
 import numpy as np
 import MinkowskiEngine as ME
 import open3d as o3d
