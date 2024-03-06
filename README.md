@@ -26,6 +26,4 @@ For training the refinement network, the configurations are defined in `config/c
 
 For running the scene completion inference we provide a pipeline where both the diffusion and refinement network are loaded and used to complete the scene from an input scan. You can run the pipeline with the command:
 
-`python3 tools/diff_completion_pipeline.py --ckpt CHECKPOINT_PATH -T DENOISING_STEPS -s CONDITIONING_WEIGHT`
-
-Upon acceptance of the paper, we will release the noise predictor and refinement network together with the code.
+`python3 tools/diff_completion_pipeline.py --diff DIFF_CKPT --refine REFINE_CKPT -T DENOISING_STEPS -s CONDITIONING_WEIGHT`
