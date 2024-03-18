@@ -15,12 +15,11 @@ import time
 class DiffCompletion(LightningModule):
     def __init__(self, diff_path, refine_path, denoising_steps, cond_weight):
         super().__init__()
-        hparams = yaml.safe_load(open(diff_path.split('checkpoints')[0] + '/hparams.yaml'))
-        self.save_hyperparameters(hparams)
+        ckpt_diff = torch.load(diff_path)
+        self.save_hyperparameters(ckpt_diff['hyper_parameters'])
         assert denoising_steps <= self.hparams['diff']['t_steps'], \
         f"The number of denoising steps cannot be bigger than T={self.hparams['diff']['t_steps']} (you've set '-T {denoising_steps}')"
 
-        ckpt_diff = torch.load(diff_path)
         self.partial_enc = minknet.MinkGlobalEnc(in_channels=3, out_channels=self.hparams['model']['out_dim']).cuda()
         self.model = minknet.MinkUNetDiff(in_channels=3, out_channels=self.hparams['model']['out_dim']).cuda()
         self.model_refine = minknet.MinkUNet(in_channels=3, out_channels=3*6)
@@ -169,9 +168,17 @@ class DiffCompletion(LightningModule):
 
         return x_t.F.cpu().detach().numpy()
 
+def load_pcd(pcd_file):
+    if pcd_file.endswith('.bin'):
+        return np.fromfile(pcd_file, dtype=np.float32).reshape((-1,4))[:,:3]
+    elif pcd_file.endswith('.ply'):
+        return np.array(o3d.io.read_point_cloud(pcd_file).points)
+    else:
+        print(f"Point cloud format '.{pcd_file.split('.')[-1]}' not supported. (supported formats: .bin (kitti format), .ply)")
+
 @click.command()
-@click.option('--diff', '-d', type=str, default='', help='path to the scan sequence')
-@click.option('--refine', '-r', type=str, default='', help='path to the scan sequence')
+@click.option('--diff', '-d', type=str, default='checkpoints/diff_net.ckpt', help='path to the scan sequence')
+@click.option('--refine', '-r', type=str, default='checkpoints/refine_net.ckpt', help='path to the scan sequence')
 @click.option('--denoising_steps', '-T', type=int, default=50, help='number of denoising steps (default: 50)')
 @click.option('--cond_weight', '-s', type=float, default=6.0, help='conditioning weight (default: 6.0)')
 def main(diff, refine, denoising_steps, cond_weight):
@@ -188,8 +195,7 @@ def main(diff, refine, denoising_steps, cond_weight):
 
     for pcd_path in tqdm.tqdm(natsorted(os.listdir(path))):
         pcd_file = os.path.join(path, pcd_path)
-        input_pcd = o3d.io.read_point_cloud(pcd_file)
-        points = np.array(input_pcd.points)
+        points = load_pcd(pcd_file)
     
         start = time.time()
         refine_scan, diff_scan = diff_completion.complete_scan(points)
