@@ -8,6 +8,5 @@ six==1.16.0
 open3d==0.17.0
 hdbscan==0.8.28
 natsort==8.1.0
-joblib==1.1.1
 pykeops==2.1.2
 diffusers==0.18.0
