@@ -84,3 +84,15 @@ For running the scene completion inference we provide a pipeline where both the 
 `python3 tools/diff_completion_pipeline.py --diff DIFF_CKPT --refine REFINE_CKPT -T DENOISING_STEPS -s CONDITIONING_WEIGHT`
 
 We provide one scan as example in `lidiff/Datasets/test/` so you can directly test it out with our trained model by just running the code above.
+
+## Citation
+
+If you use this repo, please cite as :
+
+```
+@inproceedings{nunes2024cvpr,
+    author = {Lucas Nunes and Rodrigo Marcuzzi and Benedikt Mersch and Jens Behley and Cyrill Stachniss},
+    title = {{Scaling Diffusion Models to Real-World 3D LiDAR Scene Completion}},
+    booktitle = {{Proc. of the IEEE/CVF Conf. on Computer Vision and Pattern Recognition (CVPR)}},
+    year = {2024}
+}
