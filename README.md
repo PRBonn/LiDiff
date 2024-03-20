@@ -89,7 +89,7 @@ We provide one scan as example in `lidiff/Datasets/test/` so you can directly te
 
 If you use this repo, please cite as :
 
-```
+```bibtex
 @inproceedings{nunes2024cvpr,
     author = {Lucas Nunes and Rodrigo Marcuzzi and Benedikt Mersch and Jens Behley and Cyrill Stachniss},
     title = {{Scaling Diffusion Models to Real-World 3D LiDAR Scene Completion}},
