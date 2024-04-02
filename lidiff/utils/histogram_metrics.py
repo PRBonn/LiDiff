@@ -1,7 +1,7 @@
 import numpy as np
 import open3d as o3d
 from scipy.spatial.distance import jensenshannon
-from pcdiff.utils.metrics import ChamferDistance, PrecisionRecall
+from lidiff.utils.metrics import ChamferDistance, PrecisionRecall
 import matplotlib.pyplot as plt
 
 def histogram_point_cloud(pcd, resolution, max_range, bev=False):
