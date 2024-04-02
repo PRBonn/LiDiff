@@ -1,12 +1,12 @@
 import os
 import numpy as np
 import open3d as o3d
-from pcdiff.utils.metrics import ChamferDistance, PrecisionRecall, CompletionIoU, RMSE 
-from pcdiff.tools.diff_map import load_poses
+from lidiff.utils.metrics import ChamferDistance, PrecisionRecall, CompletionIoU, RMSE 
+from lidiff.tools.diff_map import load_poses
 import tqdm
 from natsort import natsorted
-from pcdiff.tools.diff_map import DiffCompletion
-from pcdiff.utils.histogram_metrics import compute_hist_metrics 
+from lidiff.tools.diff_map import DiffCompletion
+from lidiff.utils.histogram_metrics import compute_hist_metrics 
 import click
 import json
 
