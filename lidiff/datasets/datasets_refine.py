@@ -1,8 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
-from pcdiff.datasets.dataloader.SemanticKITTITemporalAggr import TemporalKITTISet
-from pcdiff.utils.collations import SparseSegmentCollation
+from lidiff.datasets.dataloader.SemanticKITTITemporalAggr import TemporalKITTISet
+from lidiff.utils.collations import SparseSegmentCollation
 import warnings
 
 warnings.filterwarnings('ignore')
