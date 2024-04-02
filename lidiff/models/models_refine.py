@@ -5,15 +5,15 @@ import lidiff.models.minkunet as minknet
 import numpy as np
 import MinkowskiEngine as ME
 import open3d as o3d
-from pcdiff.utils.scheduling import beta_func
+from lidiff.utils.scheduling import beta_func
 from tqdm import tqdm
 from os import makedirs
 from pytorch3d.loss import chamfer_distance
 
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import LightningDataModule
-from pcdiff.utils.collations import *
-from pcdiff.utils.metrics import ChamferDistance, PrecisionRecall
+from lidiff.utils.collations import *
+from lidiff.utils.metrics import ChamferDistance, PrecisionRecall
 
 class RefineDiffusion(LightningModule):
     def __init__(self, hparams:dict, data_module: LightningDataModule = None):
