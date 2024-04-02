@@ -1,9 +1,9 @@
 import torch
 from torch.utils.data import Dataset
-from pcdiff.utils.pcd_preprocess import point_set_to_coord_feats, aggregate_pcds, load_poses
-from pcdiff.utils.pcd_transforms import *
-from pcdiff.utils.data_map import learning_map
-from pcdiff.utils.collations import point_set_to_sparse
+from lidiff.utils.pcd_preprocess import point_set_to_coord_feats, aggregate_pcds, load_poses
+from lidiff.utils.pcd_transforms import *
+from lidiff.utils.data_map import learning_map
+from lidiff.utils.collations import point_set_to_sparse
 from natsort import natsorted
 import os
 import numpy as np
