@@ -1,9 +1,9 @@
 import torch
 from torch.utils.data import Dataset
-from pcdiff.utils.pcd_preprocess import clusterize_pcd, visualize_pcd_clusters, point_set_to_coord_feats, overlap_clusters, aggregate_pcds
-from pcdiff.utils.pcd_transforms import *
-from pcdiff.utils.data_map import learning_map
-from pcdiff.utils.collations import point_set_to_sparse
+from lidiff.utils.pcd_preprocess import clusterize_pcd, visualize_pcd_clusters, point_set_to_coord_feats, overlap_clusters, aggregate_pcds
+from lidiff.utils.pcd_transforms import *
+from lidiff.utils.data_map import learning_map
+from lidiff.utils.collations import point_set_to_sparse
 import os
 import numpy as np
 import MinkowskiEngine as ME
