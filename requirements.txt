@@ -1,5 +1,5 @@
 torch==1.9.0
-torchvision==1.10.0
+torchvision==0.10.0
 pytorch3d==0.7.4
 ninja==1.10.2.3
 click==8.1.4
