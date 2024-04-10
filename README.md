@@ -7,7 +7,7 @@ This repo contains the code for the scene completion diffusion method proposed i
 Our method leverages diffusion process as a point-wise local problem, disentangling the scene data distribution during in the diffusion process, learning only the point local neighborhood distribution. From our formulation we
 can achieve a complete scene representation from a single LiDAR scan directly operating over the 3D points.
 
-![](pics/diff_steps.png)
+![](media/diff_steps.png)
 
 ## Dependencies
 
