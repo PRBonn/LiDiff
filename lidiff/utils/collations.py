@@ -17,6 +17,27 @@ def normalize_pcd(points, mean, std):
 def unormalize_pcd(points, mean, std):
     return (points * std[:,None,:]) + mean[:,None,:] if len(mean.shape) == 2 else (points * std) + mean
 
+def point_set_to_sparse_refine(p_full, p_part, n_full, n_part, resolution, filename):
+    concat_full = np.ceil(n_full / p_full.shape[0])
+    concat_part = np.ceil(n_part / p_part.shape[0])
+
+    #if mode == 'diffusion':
+    #p_full = p_full[torch.randperm(p_full.shape[0])]
+    #p_part = p_part[torch.randperm(p_part.shape[0])]
+    #elif mode == 'refine':
+    p_full = p_full[torch.randperm(p_full.shape[0])]
+    p_full = torch.tensor(p_full.repeat(concat_full, 0)[:n_full])   
+
+    p_part = p_part[torch.randperm(p_part.shape[0])]
+    p_part = torch.tensor(p_part.repeat(concat_part, 0)[:n_part])
+
+    #p_feats = ME.utils.batched_coordinates([p_feats], dtype=torch.float32)[:2000]
+    
+    # after creating the voxel coordinates we normalize the floating coordinates towards mean=0 and std=1
+    p_mean, p_std = p_full.mean(axis=0), p_full.std(axis=0)
+
+    return [p_full, p_mean, p_std, p_part, filename]
+
 def point_set_to_sparse(p_full, p_part, n_full, n_part, resolution, filename, p_mean=None, p_std=None):
     concat_part = np.ceil(n_part / p_part.shape[0]) 
     p_part = p_part.repeat(concat_part, 0)

@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 from lidiff.utils.pcd_preprocess import clusterize_pcd, visualize_pcd_clusters, point_set_to_coord_feats, overlap_clusters, aggregate_pcds
 from lidiff.utils.pcd_transforms import *
 from lidiff.utils.data_map import learning_map
-from lidiff.utils.collations import point_set_to_sparse
+from lidiff.utils.collations import point_set_to_sparse_refine
 import os
 import numpy as np
 import MinkowskiEngine as ME
@@ -89,7 +89,7 @@ class TemporalKITTISet(Dataset):
         dist_full = np.power(p_full, 2)
         dist_full = np.sqrt(dist_full.sum(-1))
 
-        return point_set_to_sparse(
+        return point_set_to_sparse_refine(
             p_full[dist_full < 50.],
             p_noise[dist_noise < 50.],
             self.num_points*2,
