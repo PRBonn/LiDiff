@@ -64,6 +64,7 @@ def main(config, weights, checkpoint, test):
                           callbacks=[lr_monitor, checkpoint_saver],
                           check_val_every_n_epoch=5,
                           num_sanity_val_steps=1,
+                          limit_val_batches=0.05,
                           accelerator='ddp',
                           #gradient_clip_val=0.5,
                           )
@@ -76,6 +77,7 @@ def main(config, weights, checkpoint, test):
                           callbacks=[lr_monitor, checkpoint_saver],
                           check_val_every_n_epoch=5,
                           num_sanity_val_steps=1,
+                          limit_val_batches=0.05,
                           #gradient_clip_val=0.5,
                           )
 
