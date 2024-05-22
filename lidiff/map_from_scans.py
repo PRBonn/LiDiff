@@ -55,10 +55,10 @@ def load_poses(calib_fname, poses_fname):
 @click.command()
 @click.option('--path', '-p', type=str, help='path to the scan sequence')
 @click.option('--voxel_size', '-v', type=float, default=0.1, help='voxel size')
-@click.option('--max_dist', '-m', type=float, default=1000000, help='voxel_size')
-@click.option('--points_per_voxel', type=int, default=1, help='points per voxel')
-def main(path, voxel_size, max_dist, points_per_voxel):
+@click.option('--cpu', '-c', is_flag=True, help='Use CPU')
+def main(path, voxel_size, cpu):
     device_label = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device_label = 'cpu' if cpu else device_label
     device = torch.device(device_label)
     for seq in ['00','01','02','03','04','05','06','07','08','09','10']:
         map_points = torch.empty((0,3)).to(device)
