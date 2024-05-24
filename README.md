@@ -1,6 +1,6 @@
 # Scaling Diffusion Models to Real-World 3D LiDAR Scene Completion
 
-**[Paper](http://www.ipb.uni-bonn.de/pdfs/nunes2024cvpr.pdf)** **|** **[Sup. material](http://www.ipb.uni-bonn.de/pdfs/nunes2024cvpr-supmaterial.pdf)**
+**[Paper](http://www.ipb.uni-bonn.de/pdfs/nunes2024cvpr.pdf)** **|** **[Sup. material](http://www.ipb.uni-bonn.de/pdfs/nunes2024cvpr-supmaterial.pdf)** **|** **[Video](https://www.youtube.com/watch?v=XWu8svlMKUo)
 
 This repo contains the code for the scene completion diffusion method proposed in the CVPR'24 paper: "Scaling Diffusion Models to Real-World 3D LiDAR Scene Completion".
 
