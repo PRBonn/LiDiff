@@ -38,6 +38,34 @@ def point_set_to_sparse_refine(p_full, p_part, n_full, n_part, resolution, filen
 
     return [p_full, p_mean, p_std, p_part, filename]
 
+def collate_reconstruction_scans(p_scan, p_part, n_full, n_part, voxel_size, filename, p_mean=None, p_std=None, downsampling='voxelize'):
+    pcd_part = o3d.geometry.PointCloud()
+    pcd_part.points = o3d.utility.Vector3dVector(p_part)
+
+    pcd_part = downsample_with_method(pcd_part, downsampling, n_full, n_part, voxel_size)
+    
+    p_part = torch.tensor(np.array(pcd_part.points))
+    concat_part = int(np.ceil(n_part / p_part.shape[0]) )
+    p_part = p_part.repeat(concat_part, 1)
+    p_part = p_part[torch.randperm(p_part.shape[0])][:n_part]
+
+    p_full = p_scan
+    pcd_full = o3d.geometry.PointCloud()
+    pcd_full.points = o3d.utility.Vector3dVector(p_full)
+    if (p_full.shape[0] > n_full):
+        pcd_full = pcd_full.voxel_down_sample(voxel_size=voxel_size)
+    p_full = torch.tensor(np.array(pcd_full.points))
+
+    concat_full = int(np.ceil(n_full / p_full.shape[0]))
+    p_full = p_full.repeat(concat_full, 1)
+    p_full = p_full[torch.randperm(p_full.shape[0])][:n_full]
+    
+    # after creating the voxel coordinates we normalize the floating coordinates towards mean=0 and std=1
+    p_mean = p_full.mean(axis=0) if p_mean is None else p_mean
+    p_std = p_full.std(axis=0) if p_std is None else p_std
+
+    return [p_full, p_mean, p_std, p_part, filename]
+
 def point_set_to_sparse(p_full, p_part, n_full, n_part, resolution, filename, p_mean=None, p_std=None):
     concat_part = np.ceil(n_part / p_part.shape[0]) 
     p_part = p_part.repeat(concat_part, 0)
@@ -81,6 +109,17 @@ def numpy_to_sparse_tensor(p_coord, p_feats, p_label=None):
                 coordinates=p_coord,
                 device=device,
             )
+
+def downsample_with_method(point_cloud, method, n_full, n_part, voxel_size):
+    if method == 'voxelize':
+        point_cloud = point_cloud.voxel_down_sample((n_full / n_part)*voxel_size)
+    elif method == 'farthest_point':
+        point_cloud = point_cloud.farthest_point_down_sample(n_part)
+    elif method == 'random':
+        point_cloud = point_cloud.random_down_sample(float(n_part/n_full))
+    elif method == 'uniform':
+        point_cloud = point_cloud.uniform_down_sample(int(n_full/n_part))
+    return point_cloud
 
 class SparseSegmentCollation:
     def __init__(self, mode='diffusion'):
