@@ -1,0 +1,43 @@
+experiment:
+    id: scan_reconstruction_conditioning_1
+    
+##Data
+data:
+    data_dir: '/datasets_local/semantic_kitti/'
+    resolution: 0.05
+    dataloader: 'KITTI'
+    split: 'train'
+    train: [ '00' ]
+    validation: [ '08' ]
+    test: ['11']
+    num_points: 100_000
+    condition_point_ratio: .1
+    max_range: 50.
+    dataset_norm: False
+    std_axis_norm: False
+    downsampling: 'voxelize'
+    num_test_items: 200
+
+##Training
+train:
+    uncond_prob: 0.1
+    uncond_w: 6.
+    n_gpus: 1
+    num_workers: 4
+    max_epoch: 20
+    lr: 0.0001
+    batch_size: 2
+    decay_lr: 1.0e-4
+
+diff:
+    beta_start: 3.5e-5
+    beta_end: 0.007
+    beta_func: 'linear'
+    t_steps: 1000
+    s_steps: 100
+    reg_weight: 5.0
+    visualize: False
+
+##Network
+model:
+    out_dim: 96
