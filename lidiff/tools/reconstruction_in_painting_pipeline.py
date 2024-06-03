@@ -13,6 +13,7 @@ import click
 import time
 from lidiff.utils.metrics import ChamferDistance, PrecisionRecall
 import json
+import glob
 
 class InPainter(LightningModule):
     def __init__(self, diff_path, denoising_steps, cond_weight, scheduler_type):
@@ -116,23 +117,21 @@ class InPainter(LightningModule):
                     ts.append(t_T - t)
         return ts
     
-    def preprocess_scan(self, scan, volume):
+    def preprocess_scan(self, scan, mask):
         dist = np.sqrt(np.sum((scan)**2, -1))
         scan = scan[(dist < self.hparams['data']['max_range']) & (dist > 3.5)][:,:3]
+        mask = mask[(dist < self.hparams['data']['max_range']) & (dist > 3.5)]
 
         pcd_scan = o3d.geometry.PointCloud()
         pcd_scan.points = o3d.utility.Vector3dVector(scan)
         pcd_scan = pcd_scan.voxel_down_sample(10*self.hparams['data']['resolution'])
-        cond = torch.tensor(np.array(pcd_scan.points)).cuda()
-        scan = torch.tensor(scan).cuda()
-
-        mask = intercept_3d_volume(scan, volume)
-        cond_mask = intercept_3d_volume(cond, volume)
+        cond = torch.tensor(np.array(pcd_scan.points)).to(self.device)
+        scan = torch.tensor(scan).to(self.device)
 
         scan = scan[None,:,:]
         cond = cond[None,:,:]
 
-        return scan, mask, cond, cond_mask
+        return scan, cond, mask
 
     # We can probably keep this as our scan should have the same shape
     def postprocess_scan(self, completed_scan, input_scan):
@@ -147,12 +146,12 @@ class InPainter(LightningModule):
     
     def compute_metrics(self, original_scan, inpainted_scan, mask):
         pcd_pred = o3d.geometry.PointCloud()
-        points = inpainted_scan.reshape(-1, 3)[mask]
+        points = inpainted_scan.reshape(-1, 3)[mask.squeeze()==0.]
         pcd_pred.points = o3d.utility.Vector3dVector(points)
         pcd_pred.paint_uniform_color([1.0, 0.,0.])
 
         pcd_gt = o3d.geometry.PointCloud()
-        pcd_gt.points = o3d.utility.Vector3dVector(original_scan.reshape(-1, 3)[mask])
+        pcd_gt.points = o3d.utility.Vector3dVector(original_scan.reshape(-1, 3)[mask.squeeze()==0.])
         pcd_gt.paint_uniform_color([0., 1.,0.])
 
         self.chamfer_distance.update(pcd_gt, pcd_pred)
@@ -161,10 +160,11 @@ class InPainter(LightningModule):
         print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}')
         return cd_mean, cd_std
 
-    def in_paint_scan(self, scan, volume):
+    def in_paint_scan(self, scan, mask):
         completed_scans = []
-        samples_to_generate = ['normal', 'masked', 'unconditioned']
-        processed_scan, mask, cond, cond_mask = self.preprocess_scan(scan, volume)
+        samples_to_generate = ['normal', 'unconditioned']
+        processed_scan, cond, mask = self.preprocess_scan(scan, mask)
+        mask = torch.from_numpy(mask).to(self.device)
         x_feats = processed_scan + torch.randn(processed_scan.shape, device=self.device)
         metrics = {}
         for sample_type in samples_to_generate:
@@ -175,19 +175,16 @@ class InPainter(LightningModule):
             if sample_type == 'normal':
                 x_cond_normal = self.points_to_tensor(cond)
                 completed_scan = self.in_painting_loop(x_init=processed_scan, x_t=x_full, x_cond=x_cond_normal, x_uncond=x_uncond, mask=mask)
-            elif sample_type == 'masked':
-                cond_masked = mask_and_return_tensor(input_clean=cond, input_noised=torch.zeros_like(cond), mask=cond_mask)
-                x_cond_masked = self.points_to_tensor(cond_masked)
-                completed_scan = self.in_painting_loop(x_init=processed_scan, x_t=x_full, x_cond=x_cond_masked, x_uncond=x_uncond, mask=mask)
             elif sample_type == 'unconditioned':
                 completed_scan = self.in_painting_loop(x_init=processed_scan, x_t=x_full, x_cond=x_uncond, x_uncond=x_uncond, mask=mask)
             completed_scans.append(completed_scan)
 
             print('Computing metrics for: ', sample_type)
             cd_mean, cd_std = self.compute_metrics(processed_scan.cpu().detach().numpy(), completed_scan, mask.cpu().detach().numpy())
-            metrics[sample_type] = (cd_mean, cd_std)
+            metrics[sample_type+'_mean'] = cd_mean
+            metrics[sample_type+'_std'] = cd_std
         
-        x_noise_inpainted = mask_and_return_tensor(input_clean=processed_scan.reshape(1, -1, 3), input_noised=x_feats.reshape(1, -1, 3), mask=mask)
+        x_noise_inpainted = mask_and_return_tensor(input_clean=processed_scan.reshape(1, -1, 3), input_noised=x_feats.reshape(1, -1, 3), mask=mask.squeeze()==0.0)
         return processed_scan, x_noise_inpainted, cond, completed_scans, metrics
 
     def visualize_step_t(self, x_t, gt_pts, pcd, pidx=0):
@@ -230,9 +227,9 @@ class InPainter(LightningModule):
             schedule = self.generate_noise_schedule(self.hparams['diff']['s_steps'])
         elif self.scheduler_type == 'repaint':
             schedule = range(len(self.dpm_scheduler.timesteps))
-        mask = ~mask[:,None]*1.
+
         for t in tqdm.tqdm(schedule):
-            t = self.dpm_scheduler.timesteps[t].cuda()[None]
+            t = self.dpm_scheduler.timesteps[t].to(self.device)[None]
             
             noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t)
             input_noise = x_t.F.reshape(t.shape[0],-1,3) - x_init 
@@ -280,48 +277,64 @@ def intercept_3d_volume(target, volume):
 
 @click.command()
 @click.option('--name', '-n', type=str, default='results', help='name of result')
-@click.option('--diff', '-d', type=str, default='checkpoints/diff_net.ckpt', help='path to the scan sequence')
-# @click.option('--volume', '-v', type=str, help='path to file defining 3D volume to paint over')
-@click.option('--denoising_steps', '-T', type=int, default=50, help='number of denoising steps (default: 50)')
+@click.option('--diff', '-d', type=str, default='checkpoints/scan_reconstruction_denoising_1_epoch=19.ckpt', help='path to the scan sequence')
+@click.option('--sequence', '-q', type=str, default='08', help='semanti_kitti sequence to sample from')
+@click.option('--denoising_steps', '-T', type=int, default=100, help='number of denoising steps (default: 1000)')
 @click.option('--cond_weight', '-s', type=float, default=6.0, help='conditioning weight (default: 6.0)')
-@click.option('--sampler_type', '-p', default='repaint', type=str, help='sampler type')
-def main(name, diff, denoising_steps, cond_weight, sampler_type):
+@click.option('--sampler_type', '-p', default='repaint', type=str, help='sampler type (default: repaint)')
+@click.option('--sample_count', '-c', default=5, type=int, help='number of scenes to sample (default: 5)')
+@click.option('--min_points_per_car', '-m', default=1000, type=int, help='min points to consider per car (default: 1000)')
+def main(name, diff, sequence, denoising_steps, cond_weight, sampler_type, sample_count, min_points_per_car):
     exp_dir = name +'_'+ f'_T{denoising_steps}_s{cond_weight}'
 
     in_painter = InPainter(
-            diff, './checkpoints/refine_net.ckpt', denoising_steps, cond_weight, sampler_type
+            diff, denoising_steps, cond_weight, sampler_type
         )
 
-    volume = torch.tensor([[0.0,0.0,0.0],[1.0,1.0,1.0]])
+    os.makedirs(f'./results/{exp_dir}', exist_ok=True)
 
-    volume[:,0] += 4.5
-    volume[:,1] += 2
-    volume[:,2] += -1.8
-
-    path = './Datasets/test/'
-
-    os.makedirs(f'./results/{exp_dir}/refine', exist_ok=True)
-    os.makedirs(f'./results/{exp_dir}/diff', exist_ok=True)
+    sequence_paths = glob.glob(f'/datasets_local/semantic_kitti/dataset/sequences/{sequence}/velodyne/**.bin')
+    selection = np.random.permutation(len(sequence_paths))[:sample_count]
 
     metrics = []
-    for pcd_path in tqdm.tqdm(natsorted(os.listdir(path))):   
-        pcd_file = os.path.join(path, pcd_path)
-        points = load_pcd(pcd_file)
+    for index in tqdm.tqdm(selection):
+        scene_path = sequence_paths[index]
+        points = load_pcd(scene_path)
 
-        start = time.time()
-        original_scan, noise_in_painted_scan, cond, completed_scans, scan_metrics = in_painter.in_paint_scan(points, volume)
-        end = time.time()
-        print(f'took: {end - start}s')
+        labels_path = scene_path.replace('velodyne', 'labels').replace('bin', 'label')
+        labels = np.fromfile(labels_path, dtype=np.uint32)
+        
+        instance_ids = (labels >> 16) & 0xFFFF
+        labels = labels & 0xFFFF
 
-        os.makedirs(f'./results/{exp_dir}/{pcd_path[:-4]}', exist_ok=True)
-        write_pcd_to_file(original_scan.cpu().detach().numpy(), exp_dir, pcd_path[:-4], pcd_path='original_scan')
-        write_pcd_to_file(noise_in_painted_scan.cpu().detach().numpy(), exp_dir, pcd_path[:-4], 'original_scan_inpainted_noise')
-        write_pcd_to_file(cond.cpu().detach().numpy(), exp_dir, pcd_path[:-4], pcd_path='conditioning_scan')
-        write_pcd_to_file(completed_scans[0], exp_dir, pcd_path[:-4], pcd_path='after_inpainting_normal_conditioning')
-        write_pcd_to_file(completed_scans[1], exp_dir, pcd_path[:-4], pcd_path='after_inpainting_masked_conditioning')
-        write_pcd_to_file(completed_scans[2], exp_dir, pcd_path[:-4], pcd_path='after_inpainting_no_conditioning')
+        cars_instances = instance_ids[(labels==10) | (labels==252)]
+        counts = np.unique(cars_instances, return_counts=True)
+        valid_car_ids = counts[0][counts[1]>min_points_per_car]
+        if valid_car_ids.size == 0:
+            continue
+        
+        scene_label = scene_path[-10:-4]
+        os.makedirs(f'./results/{exp_dir}/{scene_label}', exist_ok=True)
 
-        metrics.append(scan_metrics)
+        for valid_car_id in valid_car_ids.tolist():
+            print(f'Inpainting on scene {scene_path}, car {valid_car_id}')
+            mask = ((~(instance_ids == valid_car_id))*1.)[:,None]
+
+            start = time.time()
+            original_scan, noise_in_painted_scan, cond, completed_scans, scan_metrics = in_painter.in_paint_scan(points, mask)
+            end = time.time()
+            print(f'took: {end - start}s')
+
+            os.makedirs(f'./results/{exp_dir}/{scene_label}/{valid_car_id}', exist_ok=True)
+            pcd_name = f'{scene_label}/{valid_car_id}'
+            
+            write_pcd_to_file(original_scan.cpu().detach().numpy(),         exp_dir, pcd_name, pcd_path='original_scan')
+            write_pcd_to_file(noise_in_painted_scan.cpu().detach().numpy(), exp_dir, pcd_name, pcd_path='original_scan_inpainted_noise')
+            write_pcd_to_file(cond.cpu().detach().numpy(),                  exp_dir, pcd_name, pcd_path='conditioning_scan')
+            write_pcd_to_file(completed_scans[0],                           exp_dir, pcd_name, pcd_path='after_inpainting_normal_conditioning')
+            write_pcd_to_file(completed_scans[1],                           exp_dir, pcd_name, pcd_path='after_inpainting_no_conditioning')
+
+            metrics.append({'sequence':sequence, 'scene':scene_label, 'car_id':valid_car_id, **scan_metrics})
 
     with open(f'./results/{exp_dir}/metrics.json', 'w') as fp:
         json.dump(metrics, fp)
