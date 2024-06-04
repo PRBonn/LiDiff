@@ -63,6 +63,7 @@ def main(config, weights, checkpoint, test):
     checkpoint_saver = ModelCheckpoint(
                                 dirpath='checkpoints/',
                                 filename=cfg['experiment']['id']+'_{epoch:02d}',
+                                save_last=True
                             )
 
     tb_logger = pl_loggers.TensorBoardLogger('experiments/'+cfg['experiment']['id'],
