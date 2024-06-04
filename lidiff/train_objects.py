@@ -79,11 +79,8 @@ def main(config, weights, checkpoint, test):
                         resume_from_checkpoint=checkpoint,
                         max_epochs= cfg['train']['max_epoch'],
                         callbacks=[lr_monitor, checkpoint_saver],
-                        check_val_every_n_epoch=5,
-                        limit_val_batches=1,
                         accelerator='gpu',
                         strategy="ddp",
-                        num_sanity_val_steps=1,
                         )
     else:
         trainer = Trainer(
@@ -94,9 +91,6 @@ def main(config, weights, checkpoint, test):
                         resume_from_checkpoint=checkpoint,
                         max_epochs= cfg['train']['max_epoch'],
                         callbacks=[lr_monitor, checkpoint_saver],
-                        check_val_every_n_epoch=5,
-                        limit_val_batches=1,
-                        num_sanity_val_steps=1,
                         )
 
 
