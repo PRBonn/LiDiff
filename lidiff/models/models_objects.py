@@ -287,50 +287,53 @@ class DiffusionPoints(LightningModule):
 
     def test_step(self, batch:dict, batch_idx):
         self.model.eval()
-        self.partial_enc.eval()
+        if batch_idx != 0:
+            return
+
+        self.model.eval()
         with torch.no_grad():
-            skip, output_paths = self.valid_paths(batch['filename'])
+            # for inference we get the partial pcd and sample the noise around the partial
+            x_init = batch['pcd_object']
+            x_feats = x_init + torch.randn(x_init.shape, device=self.device)
+            x_full = self.points_to_tensor(x_feats, batch['batch_indices'])
 
-            if skip:
-                print(f'Skipping generation from {output_paths[0]} to {output_paths[-1]}') 
-                return {'test/cd_mean': 0., 'test/cd_std': 0., 'test/precision': 0., 'test/recall': 0., 'test/fscore': 0.}
+            x_center = batch['center']
+            x_size = batch['size']
+            x_orientation = batch['orientation']
 
-            scan = batch['pcd_full']
-            x_feats = scan + torch.randn(scan.shape, device=self.device)
-            x_full = self.points_to_tensor(x_feats, batch['mean'], batch['std'])
-            x_part = self.points_to_tensor(batch['pcd_part'], batch['mean'], batch['std'])
-            x_uncond = self.points_to_tensor(
-                torch.zeros_like(batch['pcd_part']), torch.zeros_like(batch['mean']), torch.zeros_like(batch['std'])
-            )
+            x_cond = torch.hstack((x_center, x_size, x_orientation))
+            x_uncond = torch.zeros_like(x_cond)
 
-            x_gen_eval = self.p_sample_loop(scan, x_full, x_part, x_uncond, batch['mean'], batch['std'], self.visualize)
-            x_gen_eval = x_gen_eval.F.reshape((scan.shape[0],-1,3))
+            x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
+            generated_pcds = x_gen_eval.F
 
-            for i in range(len(batch['pcd_full'])):
+            curr_index = 0
+            cd_mean_as_pct_of_box = []
+            for pcd_index in range(batch['num_points'].shape[0]):
+                max_index = int(curr_index + batch['num_points'][pcd_index].item())
+                object_pcd = x_init[curr_index:max_index]
+                genrtd_pcd = generated_pcds[curr_index:max_index]
+
                 pcd_pred = o3d.geometry.PointCloud()
-                c_pred = x_gen_eval[i].cpu().detach().numpy()
-                dist_pts = np.sqrt(np.sum((c_pred)**2, axis=-1))
-                dist_idx = dist_pts < self.hparams['data']['max_range']
-                points = c_pred[dist_idx]
-                max_z = scan[i][...,2].max().item()
-                min_z = (scan[i][...,2].mean() - 2 * scan[i][...,2].std()).item()
-                pcd_pred.points = o3d.utility.Vector3dVector(points[(points[:,2] < max_z) & (points[:,2] > min_z)])
-                pcd_pred.paint_uniform_color([1.0, 0.,0.])
+                c_pred = genrtd_pcd.cpu().detach().numpy()
+                pcd_pred.points = o3d.utility.Vector3dVector(c_pred)
 
                 pcd_gt = o3d.geometry.PointCloud()
-                g_pred = batch['pcd_full'][i].cpu().detach().numpy()
+                g_pred = object_pcd.cpu().detach().numpy()
                 pcd_gt.points = o3d.utility.Vector3dVector(g_pred)
-                pcd_gt.paint_uniform_color([0., 1.,0.])
-                
-                print(f'Saving {output_paths[i]}')
-                o3d.io.write_point_cloud(f'{output_paths[i]}', pcd_pred)
 
                 self.chamfer_distance.update(pcd_gt, pcd_pred)
                 self.precision_recall.update(pcd_gt, pcd_pred)
 
+                last_cd = self.chamfer_distance.last_cd()
+                box = batch['size'][pcd_index].cpu()
+                cd_mean_as_pct_of_box.append((box * 1/last_cd).mean())
+                curr_index = max_index
+
         cd_mean, cd_std = self.chamfer_distance.compute()
         pr, re, f1 = self.precision_recall.compute_auc()
-        print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}')
+        cd_mean_as_pct_of_box = np.mean(cd_mean_as_pct_of_box)
+        print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}\tAs % of Box: {cd_mean_as_pct_of_box}')
         print(f'Precision: {pr}\tRecall: {re}\tF-Score: {f1}')
 
         self.log('test/cd_mean', cd_mean, on_step=True)
@@ -338,6 +341,7 @@ class DiffusionPoints(LightningModule):
         self.log('test/precision', pr, on_step=True)
         self.log('test/recall', re, on_step=True)
         self.log('test/fscore', f1, on_step=True)
+        self.log('test/cd_mean_as_pct_of_bx', cd_mean_as_pct_of_box, on_step=True)
         torch.cuda.empty_cache()
 
         return {'test/cd_mean': cd_mean, 'test/cd_std': cd_std, 'test/precision': pr, 'test/recall': re, 'test/fscore': f1}

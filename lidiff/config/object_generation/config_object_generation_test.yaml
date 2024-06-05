@@ -1,5 +1,5 @@
 experiment:
-    id: nuscenes_cars_generation_3
+    id: nuscenes_cars_generation_test_1
 
 ##Data
 data:

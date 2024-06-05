@@ -137,6 +137,9 @@ class ChamferDistance():
     def compute(self):
         cdist = np.array(self.dists)
         return cdist.mean(), cdist.std()
+    
+    def last_cd(self):
+        return self.dists[-1]
 
 class PrecisionRecall(Metrics3D):
 
