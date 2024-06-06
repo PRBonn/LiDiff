@@ -140,6 +140,9 @@ class ChamferDistance():
     
     def last_cd(self):
         return self.dists[-1]
+    
+    def best_index(self):
+        return np.array(self.dists).argmin()
 
 class PrecisionRecall(Metrics3D):
 

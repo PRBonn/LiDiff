@@ -1,3 +1,5 @@
+from ctypes import py_object
+from decimal import localcontext
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,12 +10,11 @@ import open3d as o3d
 from lidiff.utils.scheduling import beta_func
 from tqdm import tqdm
 from os import makedirs, path
-import time
-
 from pytorch_lightning.core.module import LightningModule
 from pytorch_lightning import LightningDataModule
 from lidiff.utils.collations import *
 from lidiff.utils.metrics import ChamferDistance, PrecisionRecall
+from lidiff.utils.three_d_helpers import build_two_point_clouds
 from diffusers import DPMSolverMultistepScheduler
 
 class DiffusionPoints(LightningModule):
@@ -231,13 +232,10 @@ class DiffusionPoints(LightningModule):
         self.model.eval()
         if batch_idx != 0:
             return
-
         self.model.eval()
         with torch.no_grad():
             # for inference we get the partial pcd and sample the noise around the partial
             x_init = batch['pcd_object']
-            x_feats = x_init + torch.randn(x_init.shape, device=self.device)
-            x_full = self.points_to_tensor(x_feats, batch['batch_indices'])
 
             x_center = batch['center']
             x_size = batch['size']
@@ -246,23 +244,32 @@ class DiffusionPoints(LightningModule):
             x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
 
-            x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
-            generated_pcds = x_gen_eval.F
+            x_gen_evals = []
+            for _ in tqdm(range(self.hparams['diff']['num_val_samples'])):
+                x_feats = x_init + torch.randn(x_init.shape, device=self.device)
+                x_full = self.points_to_tensor(x_feats, batch['batch_indices'])
+                x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
+                x_gen_evals.append(x_gen_eval.F)
 
             curr_index = 0
             cd_mean_as_pct_of_box = []
+            
             for pcd_index in range(batch['num_points'].shape[0]):
                 max_index = int(curr_index + batch['num_points'][pcd_index].item())
                 object_pcd = x_init[curr_index:max_index]
-                genrtd_pcd = generated_pcds[curr_index:max_index]
+                
+                local_chamfer = ChamferDistance()
+                for generated_pcds in x_gen_evals:
+                    genrtd_pcd = generated_pcds[curr_index:max_index]
 
-                pcd_pred = o3d.geometry.PointCloud()
-                c_pred = genrtd_pcd.cpu().detach().numpy()
-                pcd_pred.points = o3d.utility.Vector3dVector(c_pred)
+                    pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
 
-                pcd_gt = o3d.geometry.PointCloud()
-                g_pred = object_pcd.cpu().detach().numpy()
-                pcd_gt.points = o3d.utility.Vector3dVector(g_pred)
+                    local_chamfer.update(pcd_gt, pcd_pred)
+
+                best_index = local_chamfer.best_index()
+                genrtd_pcd = x_gen_evals[best_index][curr_index:max_index]
+
+                pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
 
                 self.chamfer_distance.update(pcd_gt, pcd_pred)
                 self.precision_recall.update(pcd_gt, pcd_pred)
@@ -331,13 +338,7 @@ class DiffusionPoints(LightningModule):
                 object_pcd = x_init[curr_index:max_index]
                 genrtd_pcd = generated_pcds[curr_index:max_index]
 
-                pcd_pred = o3d.geometry.PointCloud()
-                c_pred = genrtd_pcd.cpu().detach().numpy()
-                pcd_pred.points = o3d.utility.Vector3dVector(c_pred)
-
-                pcd_gt = o3d.geometry.PointCloud()
-                g_pred = object_pcd.cpu().detach().numpy()
-                pcd_gt.points = o3d.utility.Vector3dVector(g_pred)
+                pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
 
                 self.chamfer_distance.update(pcd_gt, pcd_pred)
                 self.precision_recall.update(pcd_gt, pcd_pred)

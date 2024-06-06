@@ -3,6 +3,8 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 from lidiff.datasets.dataloader.NuscenesObjects import NuscenesObjectsSet
 import warnings
+from lidiff.utils.three_d_helpers import cartesian_to_spherical
+import numpy as np
 
 warnings.filterwarnings('ignore')
 
@@ -70,13 +72,14 @@ class NuscenesObjectCollator:
         batch_indices[cumulative_indices-1] = 1
         batch_indices = batch_indices.cumsum(0).long()
         batch_indices[-1] = batch_indices[-2]
-
+        spherical_coordinates = torch.from_numpy(cartesian_to_spherical(np.stack(batch[1]))).float()
         return {'pcd_object': pcd_object, 
-            'center': torch.stack(batch[1]).float(),
+            'center': spherical_coordinates,
             'size': torch.stack(batch[2]).float(),
             'orientation': torch.stack(batch[3]).float(),
             'batch_indices': batch_indices,
             'num_points': num_points_tensor,
+            'ring_indexes': torch.vstack(batch[5]),
         }
 
 dataloaders = {

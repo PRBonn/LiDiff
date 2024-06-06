@@ -1,11 +1,13 @@
 import os
 import torch
+import torch.nn.functional
+import torch.utils
 from torch.utils.data import Dataset
 import json
 import numpy as np
 from nuscenes.utils.geometry_utils import points_in_box
 from nuscenes.utils.data_classes import Box, Quaternion
-import open3d as o3d
+from lidiff.utils.three_d_helpers import extract_yaw_angle, cartesian_to_spherical
 
 class NuscenesObjectsSet(Dataset):
     def __init__(self, data_dir, split, points_per_object=None, volume_expansion=1., recenter=True, ):
@@ -32,24 +34,15 @@ class NuscenesObjectsSet(Dataset):
 
         orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
         box = Box(center=center, size=size, orientation=orientation)
-        angle = torch.ones(1) * orientation.angle
+        angle = torch.ones(1) * extract_yaw_angle(orientation)
         
         points_from_object = points_in_box(box, points=points[:,:3].T, wlh_factor=self.volume_expansion)
         object_points = torch.from_numpy(points[points_from_object])[:,:3]
+        rings = torch.from_numpy(points[points_from_object])[:,4].long()
+        ring_indexes = torch.nn.functional.one_hot(rings, num_classes=32)
         num_points = object_points.shape[0]
 
         if self.do_recenter:
             object_points -= center
 
-        if self.points_per_object != None:
-            concat_part = int(np.ceil(self.points_per_object / object_points.shape[0]))
-            object_points = object_points.repeat(concat_part, 1)
-            object_points = object_points[torch.randperm(object_points.shape[0])][:self.points_per_object]
-
-            if object_points.shape[0] > self.points_per_object:
-                pcd_object = o3d.geometry.PointCloud()
-                pcd_object.points = o3d.utility.Vector3dVector(object_points)
-                pcd_object = pcd_object.farthest_point_down_sample(self.points_per_object)
-                object_points = torch.tensor(np.array(pcd_object.points))
-
-        return [object_points, torch.from_numpy(center), torch.from_numpy(size), angle, num_points]
+        return [object_points, center, torch.from_numpy(size), angle, num_points, ring_indexes]

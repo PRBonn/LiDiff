@@ -1,5 +1,5 @@
 experiment:
-    id: nuscenes_cars_generation_full_diffusion_1
+    id: nuscenes_cars_generation_polar_coordinates_1
 
 ##Data
 data:
@@ -26,6 +26,7 @@ diff:
     s_steps: 1000
     reg_weight: 5.0
     visualize: False
+    num_val_samples: 10
 
 ##Network
 model:
