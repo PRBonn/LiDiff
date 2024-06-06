@@ -193,12 +193,12 @@ class DiffusionPoints(LightningModule):
         t = random_ints[batch['batch_indices']]
         # sample q at step t
         # we sample noise towards zero to then add to each point the noise (without normalizing the pcd)
-        t_sample = batch['pcd_object'] + self.q_sample(torch.zeros_like(batch['pcd_object']), t, noise)
+        t_sample = self.q_sample(batch['pcd_object'], t, noise)
 
         # replace the original points with the noise sampled
         x_object_noised = self.points_to_tensor(t_sample, batch['batch_indices'])
 
-        # for classifier-free guidance switch between conditional and unconditional training NOTE THIS NEEDS TO CHANGE FOR BATCH SIZE 1 TRAINING
+        # for classifier-free guidance switch between conditional and unconditional training
         if torch.rand(1) > self.hparams['train']['uncond_prob'] or batch['pcd_object'].shape[0] == 1:
             x_center = batch['center']
             x_size = batch['size']
@@ -228,6 +228,7 @@ class DiffusionPoints(LightningModule):
         return loss
 
     def validation_step(self, batch:dict, batch_idx):
+        self.model.eval()
         if batch_idx != 0:
             return
 
@@ -246,30 +247,46 @@ class DiffusionPoints(LightningModule):
             x_uncond = torch.zeros_like(x_cond)
 
             x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
-            x_gen_eval = x_gen_eval.F
+            generated_pcds = x_gen_eval.F
 
-            pcd_pred = o3d.geometry.PointCloud()
-            c_pred = x_gen_eval.cpu().detach().numpy()
-            pcd_pred.points = o3d.utility.Vector3dVector(c_pred)
+            curr_index = 0
+            cd_mean_as_pct_of_box = []
+            for pcd_index in range(batch['num_points'].shape[0]):
+                max_index = int(curr_index + batch['num_points'][pcd_index].item())
+                object_pcd = x_init[curr_index:max_index]
+                genrtd_pcd = generated_pcds[curr_index:max_index]
 
-            pcd_gt = o3d.geometry.PointCloud()
-            g_pred = batch['pcd_object'].cpu().detach().numpy()
-            pcd_gt.points = o3d.utility.Vector3dVector(g_pred)
+                pcd_pred = o3d.geometry.PointCloud()
+                c_pred = genrtd_pcd.cpu().detach().numpy()
+                pcd_pred.points = o3d.utility.Vector3dVector(c_pred)
 
-            self.chamfer_distance.update(pcd_gt, pcd_pred)
-            self.precision_recall.update(pcd_gt, pcd_pred)
+                pcd_gt = o3d.geometry.PointCloud()
+                g_pred = object_pcd.cpu().detach().numpy()
+                pcd_gt.points = o3d.utility.Vector3dVector(g_pred)
+
+                self.chamfer_distance.update(pcd_gt, pcd_pred)
+                self.precision_recall.update(pcd_gt, pcd_pred)
+
+                last_cd = self.chamfer_distance.last_cd()
+                box = batch['size'][pcd_index].cpu()
+                cd_mean_as_pct_of_box.append((last_cd / box.mean())*100.)
+                curr_index = max_index
 
         cd_mean, cd_std = self.chamfer_distance.compute()
         pr, re, f1 = self.precision_recall.compute_auc()
+        cd_mean_as_pct_of_box = np.mean(cd_mean_as_pct_of_box)
+        print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}\tAs % of Box: {cd_mean_as_pct_of_box}')
+        print(f'Precision: {pr}\tRecall: {re}\tF-Score: {f1}')
 
         self.log('val/cd_mean', cd_mean, on_step=True)
         self.log('val/cd_std', cd_std, on_step=True)
         self.log('val/precision', pr, on_step=True)
         self.log('val/recall', re, on_step=True)
         self.log('val/fscore', f1, on_step=True)
+        self.log('val/cd_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
         torch.cuda.empty_cache()
 
-        return {'val/cd_mean': cd_mean, 'val/cd_std': cd_std, 'val/precision': pr, 'val/recall': re, 'val/fscore': f1}
+        return {'val/cd_mean': cd_mean, 'val/cd_std': cd_std, 'val/precision': pr, 'val/recall': re, 'val/fscore': f1, 'val/cd_as_pct_of_box':cd_mean_as_pct_of_box}
     
     def valid_paths(self, filenames):
         output_paths = []
@@ -348,14 +365,13 @@ class DiffusionPoints(LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams['train']['lr'], betas=(0.9, 0.999))
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, 0.5)
         scheduler = {
-            'scheduler': scheduler, # lr * 0.5
+            # 'scheduler': scheduler, # lr * 0.5
             'interval': 'epoch', # interval is epoch-wise
             'frequency': 5, # after 5 epochs
         }
 
-        return [optimizer], [scheduler]
+        return [optimizer]
 
 #######################################
 # Modules

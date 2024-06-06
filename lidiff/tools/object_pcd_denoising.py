@@ -110,8 +110,9 @@ def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, 
     batch_indices = torch.zeros(x_feats.shape[0]).long().cuda()
     x_full = model.points_to_tensor(x_feats, batch_indices)
 
-
-    x_cond = torch.hstack((x_center, x_size, x_orientation)).unsqueeze(0).cuda()
+    moved_x_center = x_center - torch.Tensor((0, 15, 0))
+    print(moved_x_center)
+    x_cond = torch.hstack((x_center, x_size * 5, x_orientation)).unsqueeze(0).cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
 
     x_gen_eval = p_sample_loop(model, x_init, x_full, x_cond, x_uncond, batch_indices, generate_viz=False)
@@ -120,8 +121,8 @@ def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, 
     return x_gen_eval.cpu().detach().numpy(), x_object.cpu().detach().numpy()
 
 def find_pcd_and_test_on_object(output_path, name):
-    config = 'lidiff/config/object_generation/config_object_generation_test.yaml'
-    weights = 'lidiff/checkpoints/nuscenes_cars_generation_3_epoch=99.ckpt'
+    config = 'lidiff/config/object_generation/config_object_generation_full_diff.yaml'
+    weights = 'lidiff/checkpoints/nuscenes_cars_generation_full_diffusion_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
     model.eval()
@@ -140,4 +141,4 @@ def find_pcd_and_test_on_object(output_path, name):
     np.savetxt(f'{output_path}/{name}_orig.txt', x_orig)
 
 if __name__=='__main__':
-    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'test_object_1000s')
+    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'test_object_full_diff_1000s_scaled_size')
