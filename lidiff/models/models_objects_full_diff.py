@@ -193,7 +193,6 @@ class DiffusionPoints(LightningModule):
         random_ints = torch.randint(0, self.t_steps, size=(batch['num_points'].shape[0],)).cuda()
         t = random_ints[batch['batch_indices']]
         # sample q at step t
-        # we sample noise towards zero to then add to each point the noise (without normalizing the pcd)
         t_sample = self.q_sample(batch['pcd_object'], t, noise)
 
         # replace the original points with the noise sampled
@@ -209,9 +208,9 @@ class DiffusionPoints(LightningModule):
             x_size = torch.zeros_like(batch['size'])
             x_orientation = torch.zeros_like(batch['orientation'])
         
-        conditions = torch.hstack((x_center, x_size, x_orientation))
+        x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
         x_sparse = x_object_noised.sparse()
-        denoise_t = self.forward(x_object_noised, x_sparse, t, conditions).squeeze(1)
+        denoise_t = self.forward(x_object_noised, x_sparse, t, x_cond).squeeze(1)
         loss_mse = self.p_losses(denoise_t, noise)
         loss_mean = (denoise_t.mean())**2
         loss_std = (denoise_t.std() - 1.)**2
@@ -234,14 +233,13 @@ class DiffusionPoints(LightningModule):
             return
         self.model.eval()
         with torch.no_grad():
-            # for inference we get the partial pcd and sample the noise around the partial
             x_init = batch['pcd_object']
 
             x_center = batch['center']
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            x_cond = torch.hstack((x_center, x_size, x_orientation))
+            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
             x_uncond = torch.zeros_like(x_cond)
 
             x_gen_evals = []
@@ -325,7 +323,7 @@ class DiffusionPoints(LightningModule):
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            x_cond = torch.hstack((x_center, x_size, x_orientation))
+            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
             x_uncond = torch.zeros_like(x_cond)
 
             x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])

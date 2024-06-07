@@ -101,6 +101,7 @@ class MinkUNetDiff(nn.Module):
             ME.MinkowskiReLU(inplace=True)
         )
         num_conditions = 8
+        self.num_cyclic_conditions = 2
 
         # Stage1 temp embed proj and conv
         self.latent_stage1 = nn.Sequential(
@@ -347,13 +348,32 @@ class MinkUNetDiff(nn.Module):
         emb = torch.from_numpy(np.exp(np.arange(0, half_dim) * -emb[:,None])).float().to(torch.device('cuda'))
         emb = condition[:, :, None] * emb[:, None, :]
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=2)
-        if 96 % 2 == 1:  # zero pad
+        if self.embed_dim % 2 == 1:  # zero pad
+            emb = nn.functional.pad(emb, (0, 1), "constant", 0)
+        return emb
+
+    def get_cyclic_embedding(self, condition):
+        batch_size, _ = condition.shape
+        half_dim = self.embed_dim // 2
+
+        frequencies = (- torch.arange(0, half_dim) * np.log(10000) / (half_dim - 1)).exp()
+        frequencies = frequencies[None, None, :].repeat(batch_size, 1, 1).cuda()
+
+        sin_sin_emb = ((condition[:, :, None]).sin() * frequencies).sin()
+        sin_cos_emb = ((condition[:, :, None]).cos() * frequencies).sin()
+        emb = torch.cat([sin_sin_emb, sin_cos_emb], dim=2)
+        
+        if self.embed_dim % 2 == 1:  # zero pad
             emb = nn.functional.pad(emb, (0, 1), "constant", 0)
         return emb
 
     def forward(self, x, x_sparse, t, y):
         temp_emb = self.get_timestep_embedding(t)
-        cond_emb = self.get_positional_embedding(y)
+        cond_emb = torch.cat(
+            (
+                self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 
+                self.get_positional_embedding(y[:,self.num_cyclic_conditions:])
+            ), 1)
 
         x0 = self.stem(x_sparse)
         p0 = self.latent_stage1(cond_emb) 

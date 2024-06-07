@@ -12,6 +12,7 @@ from nuscenes.nuscenes import NuScenes
 import nuscenes.utils.splits as splits
 import open3d as o3d
 from tqdm import tqdm
+from lidiff.utils.three_d_helpers import cartesian_to_spherical, extract_yaw_angle
 
 np.random.seed(42)
 torch.manual_seed(42)
@@ -44,12 +45,12 @@ def find_eligible_objects():
                 annotation = nusc.get('sample_annotation', object.token)
                 num_lidar_points = annotation['num_lidar_pts']
                 car_points = points_in_box(object, lidar_pointcloud.points[:3, :])
-
                 car_info = {
                     'lidar_filepath': lidar_filepath,
                     'center': object.center.tolist(),
                     'wlh': object.wlh.tolist(),
-                    'angle': object.orientation.angle,
+                    'rotation_real': object.orientation.real.tolist(),
+                    'rotation_imaginary': object.orientation.imaginary.tolist(),
                     'car_points': car_points.tolist(),
                     'num_lidar_points': num_lidar_points
                 }
@@ -97,12 +98,12 @@ def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_i
 
         
 def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, num_lidar_points, center, wlh, angle):
-    x_center = torch.Tensor(center).float()
+    center = np.array(center)
+    x_center = torch.from_numpy(cartesian_to_spherical(center[None, :])).float().squeeze(0)
     x_size = torch.Tensor(wlh).float()
     x_orientation = torch.ones(1) * angle
-
     pcd = load_pcd(lidar_filepath)
-    x_object = torch.from_numpy(pcd[car_points]) - x_center
+    x_object = torch.from_numpy(pcd[car_points]) - center
 
     x_init = x_object.clone().cuda()
     x_feats = x_init + torch.randn(x_init.shape, device='cuda')
@@ -110,9 +111,7 @@ def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, 
     batch_indices = torch.zeros(x_feats.shape[0]).long().cuda()
     x_full = model.points_to_tensor(x_feats, batch_indices)
 
-    moved_x_center = x_center - torch.Tensor((0, 15, 0))
-    print(moved_x_center)
-    x_cond = torch.hstack((x_center, x_size * 5, x_orientation)).unsqueeze(0).cuda()
+    x_cond = torch.hstack((x_center, x_size, x_orientation)).unsqueeze(0).cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
 
     x_gen_eval = p_sample_loop(model, x_init, x_full, x_cond, x_uncond, batch_indices, generate_viz=False)
@@ -122,11 +121,14 @@ def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, 
 
 def find_pcd_and_test_on_object(output_path, name):
     config = 'lidiff/config/object_generation/config_object_generation_full_diff.yaml'
-    weights = 'lidiff/checkpoints/nuscenes_cars_generation_full_diffusion_1_epoch=99.ckpt'
+    weights = 'lidiff/checkpoints/nuscenes_cars_generation_polar_coordinates_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
     model.eval()
     car_info = find_eligible_objects()
+    rotation_real = np.array(car_info['rotation_real'])
+    rotation_imaginary = np.array(car_info['rotation_imaginary'])
+    orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
 
     x_gen, x_orig = denoise_object_from_pcd(
         model,
@@ -135,10 +137,10 @@ def find_pcd_and_test_on_object(output_path, name):
         car_info['num_lidar_points'], 
         car_info['center'], 
         car_info['wlh'], 
-        car_info['angle']
+        extract_yaw_angle(orientation),
     )
     np.savetxt(f'{output_path}/{name}_generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}_orig.txt', x_orig)
 
 if __name__=='__main__':
-    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'test_object_full_diff_1000s_scaled_size')
+    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'test_full_diff_polar_coord_e79')
