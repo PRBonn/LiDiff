@@ -23,10 +23,10 @@ diff:
     beta_end: 0.007
     beta_func: 'linear'
     t_steps: 1000
-    s_steps: 10
+    s_steps: 50
     reg_weight: 5.0
     visualize: False
-    num_val_samples: 2
+    num_val_samples: 10
 
 ##Network
 model:
