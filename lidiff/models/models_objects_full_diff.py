@@ -109,9 +109,8 @@ class DiffusionPoints(LightningModule):
         return x_uncond + self.w_uncond * (x_cond - x_uncond)
 
     def visualize_step_t(self, x_t, gt_pts, pcd):
-        points = x_t.F.detach().cpu().numpy()
-        points = points.reshape(gt_pts.shape[0],-1,3)
-        points = np.concatenate((points, gt_pts), axis=0)
+        points = x_t.detach().cpu().numpy()
+        points = np.concatenate((points, gt_pts.detach().cpu().numpy()), axis=0)
 
         pcd.points = o3d.utility.Vector3dVector(points)
        
@@ -121,17 +120,17 @@ class DiffusionPoints(LightningModule):
         pcd.colors = o3d.utility.Vector3dVector(colors)
         return pcd
 
-    def p_sample_loop(self, x_t, x_cond, x_uncond, batch_indices):
+    def p_sample_loop(self, x_t, x_cond, x_uncond, batch_indices, num_points):
         self.scheduler_to_cuda()
 
         for t in tqdm(range(len(self.dpm_scheduler.timesteps))):
-            timesteps_per_item = torch.ones(x_cond.shape[0]).cuda().long() * self.dpm_scheduler.timesteps[t].cuda()
-            t = timesteps_per_item[batch_indices]
-
-            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(0)
+            random_ints = torch.ones(num_points.shape[0]).cuda().long() * self.dpm_scheduler.timesteps[t].cuda()
+            t = random_ints[batch_indices]            
+            
+            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(1)
             input_noise = x_t.F
 
-            x_t = self.dpm_scheduler.step(noise_t, t, input_noise)['prev_sample']
+            x_t = self.dpm_scheduler.step(noise_t, t[0], input_noise)['prev_sample']
             
             x_t = self.points_to_tensor(x_t, batch_indices)
 
@@ -314,7 +313,7 @@ class DiffusionPoints(LightningModule):
                 torch.cuda.manual_seed(i)
                 noise = torch.randn(x_object.shape, device=self.device)
                 x_t = self.points_to_tensor(noise, batch['batch_indices'])
-                x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'])
+                x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
                 x_gen_evals.append(x_gen_eval.F)
 
             curr_index = 0
