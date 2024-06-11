@@ -24,7 +24,7 @@ class NuscenesObjectsDataModule(LightningDataModule):
         pass
 
     def train_dataloader(self):
-        collate = NuscenesObjectCollator()
+        collate = NuscenesObjectCollator(coordinate_type=self.cfg['data']['coordinates'])
 
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
@@ -35,7 +35,7 @@ class NuscenesObjectsDataModule(LightningDataModule):
         return loader
 
     def val_dataloader(self, pre_training=True):
-        collate = NuscenesObjectCollator()
+        collate = NuscenesObjectCollator(coordinate_type=self.cfg['data']['coordinates'])
 
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
@@ -46,7 +46,7 @@ class NuscenesObjectsDataModule(LightningDataModule):
         return loader
 
     def test_dataloader(self):
-        collate = NuscenesObjectCollator()
+        collate = NuscenesObjectCollator(coordinate_type=self.cfg['data']['coordinates'])
 
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
@@ -57,8 +57,9 @@ class NuscenesObjectsDataModule(LightningDataModule):
         return loader
 
 class NuscenesObjectCollator:
-    def __init__(self, mode='diffusion'):
+    def __init__(self, mode='diffusion', coordinate_type='standard'):
         self.mode = mode
+        self.coordinate_type = coordinate_type
         return
 
     def __call__(self, data):
@@ -72,11 +73,18 @@ class NuscenesObjectCollator:
         batch_indices[cumulative_indices-1] = 1
         batch_indices = batch_indices.cumsum(0).long()
         batch_indices[-1] = batch_indices[-2]
-        spherical_coordinates = torch.from_numpy(cartesian_to_cylindrical(np.stack(batch[1]))).float()
+        
+        if self.coordinate_type == 'cartesian':
+            center = torch.from_numpy(np.stack(batch[1])).float()
+            orientation = torch.Tensor([[quaternion.angle] for quaternion in batch[3]]).float()
+        elif self.coordinate_type == 'cylindrical':
+            center = torch.from_numpy(cartesian_to_cylindrical(np.stack(batch[1]))).float()
+            orientation = torch.Tensor([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]]).float()
+
         return {'pcd_object': pcd_object, 
-            'center': spherical_coordinates,
+            'center': center,
             'size': torch.stack(batch[2]).float(),
-            'orientation': torch.stack(batch[3]).float(),
+            'orientation': orientation,
             'batch_indices': batch_indices,
             'num_points': num_points_tensor,
             'ring_indexes': torch.vstack(batch[5]),

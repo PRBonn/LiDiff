@@ -102,6 +102,7 @@ class MinkUNetDiff(nn.Module):
         )
         num_conditions = 8
         self.num_cyclic_conditions = 2
+        self.embeddings_type = kwargs.get('embeddings_type','positional')
 
         # Stage1 temp embed proj and conv
         self.latent_stage1 = nn.Sequential(
@@ -369,11 +370,14 @@ class MinkUNetDiff(nn.Module):
 
     def forward(self, x, x_sparse, t, y):
         temp_emb = self.get_timestep_embedding(t)
-        cond_emb = torch.cat(
-            (
-                self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 
-                self.get_positional_embedding(y[:,self.num_cyclic_conditions:])
-            ), 1)
+        if self.embeddings_type == 'cyclical':
+            cond_emb = torch.cat(
+                (
+                    self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 
+                    self.get_positional_embedding(y[:,self.num_cyclic_conditions:])
+                ), 1)
+        else:
+            cond_emb = self.get_positional_embedding(y)
 
         x0 = self.stem(x_sparse)
         p0 = self.latent_stage1(cond_emb) 

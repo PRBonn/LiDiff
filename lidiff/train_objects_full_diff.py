@@ -38,7 +38,8 @@ def set_deterministic():
               default=None)
 @click.option('--test', '-t', is_flag=True, help='test mode')
 def main(config, weights, checkpoint, test):
-    set_deterministic()
+    if not test:
+        set_deterministic()
 
     cfg = yaml.safe_load(open(config))
     # overwrite the data path in case we have defined in the env variables
@@ -93,7 +94,7 @@ def main(config, weights, checkpoint, test):
                         max_epochs= cfg['train']['max_epoch'],
                         callbacks=[lr_monitor, checkpoint_saver],
                         check_val_every_n_epoch=10,
-                        num_sanity_val_steps=1
+                        num_sanity_val_steps=0
                 )
 
 

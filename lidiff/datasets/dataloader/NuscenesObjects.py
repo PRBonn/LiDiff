@@ -34,7 +34,6 @@ class NuscenesObjectsSet(Dataset):
 
         orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
         box = Box(center=center, size=size, orientation=orientation)
-        angle = torch.ones(1) * extract_yaw_angle(orientation)
         
         points_from_object = points_in_box(box, points=points[:,:3].T, wlh_factor=self.volume_expansion)
         object_points = torch.from_numpy(points[points_from_object])[:,:3]
@@ -45,4 +44,4 @@ class NuscenesObjectsSet(Dataset):
         if self.do_recenter:
             object_points -= center
 
-        return [object_points, center, torch.from_numpy(size), angle, num_points, ring_indexes]
+        return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes]

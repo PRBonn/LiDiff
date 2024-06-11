@@ -75,7 +75,11 @@ class DiffusionPoints(LightningModule):
         self.dpm_scheduler.set_timesteps(self.s_steps)
         self.scheduler_to_cuda()
 
-        self.model = minknet.MinkUNetDiff(in_channels=3, out_channels=self.hparams['model']['out_dim'])
+        self.model = minknet.MinkUNetDiff(
+            in_channels=3, 
+            out_channels=self.hparams['model']['out_dim'], 
+            embeddings_type=self.hparams['model']['embeddings']
+        )
 
         self.chamfer_distance = ChamferDistance()
         self.precision_recall = PrecisionRecall(self.hparams['data']['resolution'],2*self.hparams['data']['resolution'],100)
@@ -104,59 +108,34 @@ class DiffusionPoints(LightningModule):
 
         return x_uncond + self.w_uncond * (x_cond - x_uncond)
 
-    def visualize_step_t(self, x_t, gt_pts, pcd, pcd_mean, pcd_std, pidx=0):
+    def visualize_step_t(self, x_t, gt_pts, pcd):
         points = x_t.F.detach().cpu().numpy()
         points = points.reshape(gt_pts.shape[0],-1,3)
-        obj_mean = pcd_mean[pidx][0].detach().cpu().numpy()
-        points = np.concatenate((points[pidx], gt_pts[pidx]), axis=0)
+        points = np.concatenate((points, gt_pts), axis=0)
 
-        dist_pts = np.sqrt(np.sum((points - obj_mean)**2, axis=-1))
-        dist_idx = dist_pts < self.hparams['data']['max_range']
-
-        full_pcd = len(points) - len(gt_pts[pidx])
-        print(f'\n[{dist_idx.sum() - full_pcd}|{dist_idx.shape[0] - full_pcd }] points inside margin...')
-
-        pcd.points = o3d.utility.Vector3dVector(points[dist_idx])
+        pcd.points = o3d.utility.Vector3dVector(points)
        
         colors = np.ones((len(points), 3)) * .5
         colors[:len(gt_pts[0])] = [1.,.3,.3]
         colors[-len(gt_pts[0]):] = [.3,1.,.3]
-        pcd.colors = o3d.utility.Vector3dVector(colors[dist_idx])
+        pcd.colors = o3d.utility.Vector3dVector(colors)
         return pcd
 
-    def reset_partial_pcd(self, x_part, x_uncond, x_mean, x_std):
-        x_part = self.points_to_tensor(x_part.F.reshape(x_mean.shape[0],-1,3).detach(), x_mean, x_std)
-        x_uncond = self.points_to_tensor(
-                torch.zeros_like(x_part.F.reshape(x_mean.shape[0],-1,3)), torch.zeros_like(x_mean), torch.zeros_like(x_std)
-        )
-
-        return x_part, x_uncond
-
-    def p_sample_loop(self, x_init, x_t, x_cond, x_uncond, batch_indices, num_points, generate_viz=False):
+    def p_sample_loop(self, x_t, x_cond, x_uncond, batch_indices):
         self.scheduler_to_cuda()
-        if generate_viz:
-            viz_pcd = o3d.geometry.PointCloud()
-            makedirs(f'{self.logger.log_dir}/generated_pcd/step_visualizations', exist_ok=True)
 
         for t in tqdm(range(len(self.dpm_scheduler.timesteps))):
-            random_ints = torch.ones(num_points.shape[0]).cuda().long() * self.dpm_scheduler.timesteps[t].cuda()
-            t = random_ints[batch_indices]
+            timesteps_per_item = torch.ones(x_cond.shape[0]).cuda().long() * self.dpm_scheduler.timesteps[t].cuda()
+            t = timesteps_per_item[batch_indices]
 
-            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(1)
-            input_noise = x_t.F - x_init
+            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(0)
+            input_noise = x_t.F
 
-            x_t = x_init + self.dpm_scheduler.step(noise_t, t[0], input_noise)['prev_sample']
+            x_t = self.dpm_scheduler.step(noise_t, t, input_noise)['prev_sample']
             
             x_t = self.points_to_tensor(x_t, batch_indices)
 
-            if generate_viz:
-                viz = self.visualize_step_t(x_t, x_init.cpu().detach().numpy(), viz_pcd)
-                print(f'Saving Visualization of Step {t}')
-                o3d.io.write_point_cloud(f'{self.logger.log_dir}/generated_pcd/step_visualizations/step_{t[0]}.ply', viz)
-
             torch.cuda.empty_cache()
-
-        
 
         return x_t
 
@@ -208,7 +187,11 @@ class DiffusionPoints(LightningModule):
             x_size = torch.zeros_like(batch['size'])
             x_orientation = torch.zeros_like(batch['orientation'])
         
-        x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+        if self.hparams['model']['embeddings'] == 'cyclical':
+            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+        else:
+            x_cond = torch.hstack((x_center, x_size, x_orientation))
+
         x_sparse = x_object_noised.sparse()
         denoise_t = self.forward(x_object_noised, x_sparse, t, x_cond).squeeze(1)
         loss_mse = self.p_losses(denoise_t, noise)
@@ -229,8 +212,7 @@ class DiffusionPoints(LightningModule):
 
     def validation_step(self, batch:dict, batch_idx):
         self.model.eval()
-        if batch_idx != 0:
-            return
+
         self.model.eval()
         with torch.no_grad():
             x_init = batch['pcd_object']
@@ -239,7 +221,10 @@ class DiffusionPoints(LightningModule):
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            if self.hparams['model']['embeddings'] == 'cyclical':
+                x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            else:
+                x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
 
             x_gen_evals = []
@@ -278,20 +263,15 @@ class DiffusionPoints(LightningModule):
                 curr_index = max_index
 
         cd_mean, cd_std = self.chamfer_distance.compute()
-        pr, re, f1 = self.precision_recall.compute_auc()
         cd_mean_as_pct_of_box = np.mean(cd_mean_as_pct_of_box)
         print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}\tAs % of Box: {cd_mean_as_pct_of_box}')
-        print(f'Precision: {pr}\tRecall: {re}\tF-Score: {f1}')
 
-        self.log('val/cd_mean', cd_mean, on_step=True)
-        self.log('val/cd_std', cd_std, on_step=True)
-        self.log('val/precision', pr, on_step=True)
-        self.log('val/recall', re, on_step=True)
-        self.log('val/fscore', f1, on_step=True)
-        self.log('val/cd_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
+        self.log('test/cd_mean', cd_mean, on_step=True)
+        self.log('test/cd_std', cd_std, on_step=True)
+        self.log('test/cd_mean_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
         torch.cuda.empty_cache()
 
-        return {'val/cd_mean': cd_mean, 'val/cd_std': cd_std, 'val/precision': pr, 'val/recall': re, 'val/fscore': f1, 'val/cd_as_pct_of_box':cd_mean_as_pct_of_box}
+        return {'val/cd_mean': cd_mean, 'val/cd_std': cd_std, 'val/cd_as_pct_of_box':cd_mean_as_pct_of_box}
     
     def valid_paths(self, filenames):
         output_paths = []
@@ -309,58 +289,72 @@ class DiffusionPoints(LightningModule):
 
     def test_step(self, batch:dict, batch_idx):
         self.model.eval()
-        if batch_idx != 0:
-            return
+        
+        viz_pcd = o3d.geometry.PointCloud()
+        makedirs(f'{self.logger.log_dir}/generated_pcd/visualizations', exist_ok=True)
 
         self.model.eval()
         with torch.no_grad():
-            # for inference we get the partial pcd and sample the noise around the partial
-            x_init = batch['pcd_object']
-            x_feats = x_init + torch.randn(x_init.shape, device=self.device)
-            x_full = self.points_to_tensor(x_feats, batch['batch_indices'])
+            x_object = batch['pcd_object']
 
             x_center = batch['center']
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            if self.hparams['model']['embeddings'] == 'cyclical':
+                x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            else:
+                x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
 
-            x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
-            generated_pcds = x_gen_eval.F
+            x_gen_evals = []
+            for i in tqdm(range(self.hparams['diff']['num_val_samples'])):
+                np.random.seed(i)
+                torch.manual_seed(i)
+                torch.cuda.manual_seed(i)
+                noise = torch.randn(x_object.shape, device=self.device)
+                x_t = self.points_to_tensor(noise, batch['batch_indices'])
+                x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'])
+                x_gen_evals.append(x_gen_eval.F)
 
             curr_index = 0
             cd_mean_as_pct_of_box = []
             for pcd_index in range(batch['num_points'].shape[0]):
                 max_index = int(curr_index + batch['num_points'][pcd_index].item())
-                object_pcd = x_init[curr_index:max_index]
-                genrtd_pcd = generated_pcds[curr_index:max_index]
+                object_pcd = x_object[curr_index:max_index]
+                
+                local_chamfer = ChamferDistance()
+                for generated_pcds in x_gen_evals:
+                    genrtd_pcd = generated_pcds[curr_index:max_index]
+
+                    pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
+
+                    local_chamfer.update(pcd_gt, pcd_pred)
+
+                best_index = local_chamfer.best_index()
+                genrtd_pcd = x_gen_evals[best_index][curr_index:max_index]
 
                 pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
 
                 self.chamfer_distance.update(pcd_gt, pcd_pred)
-                self.precision_recall.update(pcd_gt, pcd_pred)
 
                 last_cd = self.chamfer_distance.last_cd()
                 box = batch['size'][pcd_index].cpu()
                 cd_mean_as_pct_of_box.append((last_cd / box.mean())*100.)
                 curr_index = max_index
+                visualization = self.visualize_step_t(genrtd_pcd, object_pcd, viz_pcd)
+                o3d.io.write_point_cloud(f'{self.logger.log_dir}/generated_pcd/visualizations/batch_{batch_idx}_object_{pcd_index}_seed_{best_index}.ply', visualization)
 
         cd_mean, cd_std = self.chamfer_distance.compute()
-        pr, re, f1 = self.precision_recall.compute_auc()
         cd_mean_as_pct_of_box = np.mean(cd_mean_as_pct_of_box)
         print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}\tAs % of Box: {cd_mean_as_pct_of_box}')
-        print(f'Precision: {pr}\tRecall: {re}\tF-Score: {f1}')
 
         self.log('test/cd_mean', cd_mean, on_step=True)
         self.log('test/cd_std', cd_std, on_step=True)
-        self.log('test/precision', pr, on_step=True)
-        self.log('test/recall', re, on_step=True)
-        self.log('test/fscore', f1, on_step=True)
-        self.log('test/cd_mean_as_pct_of_bx', cd_mean_as_pct_of_box, on_step=True)
+        self.log('test/cd_mean_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
         torch.cuda.empty_cache()
 
-        return {'test/cd_mean': cd_mean, 'test/cd_std': cd_std, 'test/precision': pr, 'test/recall': re, 'test/fscore': f1}
+        return {'test/cd_mean': cd_mean, 'test/cd_std': cd_std, 'test/cd_mean_as_pct_of_box':cd_mean_as_pct_of_box,}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams['train']['lr'], betas=(0.9, 0.999))
