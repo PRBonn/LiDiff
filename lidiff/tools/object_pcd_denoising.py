@@ -1,8 +1,9 @@
+import imp
 from operator import xor
 import os
 import json
 import yaml
-from lidiff.models.models_objects import DiffusionPoints
+from lidiff.models.models_objects_full_diff import DiffusionPoints
 import torch
 import numpy as np
 from nuscenes.utils.data_classes import LidarPointCloud
@@ -12,11 +13,10 @@ from nuscenes.nuscenes import NuScenes
 import nuscenes.utils.splits as splits
 import open3d as o3d
 from tqdm import tqdm
-from lidiff.utils.three_d_helpers import cartesian_to_spherical, extract_yaw_angle
+from lidiff.utils.three_d_helpers import cartesian_to_cylindrical, cartesian_to_spherical, extract_yaw_angle, build_two_point_clouds
+from lidiff.utils.metrics import ChamferDistance
 
-np.random.seed(42)
-torch.manual_seed(42)
-torch.cuda.manual_seed(42)
+# np.random.seed(42)
 torch.cuda.empty_cache()
 torch.backends.cudnn.deterministic = True
 
@@ -69,6 +69,11 @@ def load_pcd(pcd_file):
     else:
         print(f"Point cloud format '.{pcd_file.split('.')[-1]}' not supported. (supported formats: .bin (kitti format), .ply)")
 
+def visualize_step_t(x_t, pcd):
+    points = x_t.detach().cpu().numpy()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    return pcd
+
 def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_indices, generate_viz=False):
     model.scheduler_to_cuda()
     if generate_viz:
@@ -81,47 +86,58 @@ def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_i
         with torch.no_grad():
             noise_t = model.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(0)
             torch.cuda.empty_cache()
-        input_noise = x_t.F - x_init
+        input_noise = x_t.F
 
-        x_t = x_init + model.dpm_scheduler.step(noise_t, t, input_noise)['prev_sample']
+        x_t = model.dpm_scheduler.step(noise_t, t, input_noise)['prev_sample']
         
         x_t = model.points_to_tensor(x_t, batch_indices)
 
         if generate_viz:
-            viz = model.visualize_step_t(x_t, x_init.cpu().detach().numpy(), viz_pcd)
+            viz = visualize_step_t(x_t.F.clone(), viz_pcd)
             print(f'Saving Visualization of Step {t}')
-            o3d.io.write_point_cloud(f'lidiff/random_pcds/generated_pcd/step_visualizations/step_{t[0]}.ply', viz)
+            o3d.io.write_point_cloud(f'lidiff/random_pcds/generated_pcd/step_visualizations/full_diff_cylindrical_coord_step_{t[0]}.ply', viz)
 
         torch.cuda.empty_cache()
 
     return x_t
 
         
-def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, num_lidar_points, center, wlh, angle):
+def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, center, wlh, angle, num_diff_samples):
     center = np.array(center)
-    x_center = torch.from_numpy(cartesian_to_spherical(center[None, :])).float().squeeze(0)
-    x_size = torch.Tensor(wlh).float()
-    x_orientation = torch.ones(1) * angle
+    x_size = torch.Tensor(wlh).float().unsqueeze(0)
+    x_orientation = torch.ones((1,1)) * angle
     pcd = load_pcd(lidar_filepath)
     x_object = torch.from_numpy(pcd[car_points]) - center
+    x_center = torch.from_numpy(cartesian_to_cylindrical(center[None, :])).float()
 
-    x_init = x_object.clone().cuda()
-    x_feats = x_init + torch.randn(x_init.shape, device='cuda')
-    
-    batch_indices = torch.zeros(x_feats.shape[0]).long().cuda()
-    x_full = model.points_to_tensor(x_feats, batch_indices)
+    x_init = x_object.clone().cuda()    
+    batch_indices = torch.zeros(x_init.shape[0]).long().cuda()
 
-    x_cond = torch.hstack((x_center, x_size, x_orientation)).unsqueeze(0).cuda()
+    x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1).cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
 
-    x_gen_eval = p_sample_loop(model, x_init, x_full, x_cond, x_uncond, batch_indices, generate_viz=False)
-    x_gen_eval = x_gen_eval.F
-    
+    local_chamfer = ChamferDistance()
+    x_gen_evals = []
+    for i in tqdm(range(num_diff_samples)):
+        torch.manual_seed(i)
+        torch.cuda.manual_seed(i)
+        x_feats = torch.randn(x_init.shape, device=model.device)
+        x_t = model.points_to_tensor(x_feats, batch_indices)
+        x_gen_eval = p_sample_loop(model, x_init, x_t, x_cond, x_uncond, batch_indices, generate_viz=False)
+        x_gen_evals.append(x_gen_eval.F)    
+        pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=x_gen_eval.F, object_pcd=x_init)
+        local_chamfer.update(pcd_gt, pcd_pred)
+        print(f"Seed {i} CD: {local_chamfer.last_cd()}")
+
+    best_index = local_chamfer.best_index()
+    print(f"Best seed: {best_index}")
+    x_gen_eval = x_gen_evals[best_index]
+
     return x_gen_eval.cpu().detach().numpy(), x_object.cpu().detach().numpy()
 
 def find_pcd_and_test_on_object(output_path, name):
-    config = 'lidiff/config/object_generation/config_object_generation_full_diff.yaml'
-    weights = 'lidiff/checkpoints/nuscenes_cars_generation_polar_coordinates_1_epoch=99.ckpt'
+    config = 'lidiff/config/object_generation/config_object_generation_cyclical_coords.yaml'
+    weights = 'lidiff/checkpoints/nuscenes_cars_generation_cyclical_coordinates_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
     model.eval()
@@ -134,13 +150,13 @@ def find_pcd_and_test_on_object(output_path, name):
         model,
         car_info['lidar_filepath'], 
         car_info['car_points'], 
-        car_info['num_lidar_points'], 
         car_info['center'], 
         car_info['wlh'], 
         extract_yaw_angle(orientation),
+        1,
     )
     np.savetxt(f'{output_path}/{name}_generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}_orig.txt', x_orig)
 
 if __name__=='__main__':
-    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'test_full_diff_polar_coord_e79')
+    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'full_diff_250_steps_2')
