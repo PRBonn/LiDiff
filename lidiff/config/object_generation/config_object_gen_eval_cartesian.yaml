@@ -1,5 +1,5 @@
 experiment:
-    id: car_gen_eval_cyclical_embeddings_1
+    id: car_gen_eval_positional_embeddings_1
 
 ##Data
 data:
