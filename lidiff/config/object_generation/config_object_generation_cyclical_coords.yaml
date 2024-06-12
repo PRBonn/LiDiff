@@ -6,6 +6,7 @@ data:
     data_dir: '/home/ekirby/scania/ekirby/datasets/cars_from_nuscenes/cars_from_nuscenes_train_val.json'
     resolution: 0.05
     dataloader: 'nuscenes'
+    coordinates: 'cylindrical'
 
 ##Training
 train:
@@ -31,3 +32,4 @@ diff:
 ##Network
 model:
     out_dim: 96
+    embeddings: 'cyclical'

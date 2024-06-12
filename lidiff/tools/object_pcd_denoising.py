@@ -1,7 +1,5 @@
-import imp
 from operator import xor
 import os
-import json
 import yaml
 from lidiff.models.models_objects_full_diff import DiffusionPoints
 import torch
@@ -15,17 +13,14 @@ import open3d as o3d
 from tqdm import tqdm
 from lidiff.utils.three_d_helpers import cartesian_to_cylindrical, cartesian_to_spherical, extract_yaw_angle, build_two_point_clouds
 from lidiff.utils.metrics import ChamferDistance
+import sys
 
-# np.random.seed(42)
-torch.cuda.empty_cache()
-torch.backends.cudnn.deterministic = True
-
-def find_eligible_objects():
+def find_eligible_objects(num_to_find=1):
     dataroot = '/datasets_local/nuscenes'
     nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
 
     train_split = set(splits.train)
-
+    targets = []
     found_target = False
     for sample in nusc.sample:
         scene_token = sample['scene_token']
@@ -46,6 +41,7 @@ def find_eligible_objects():
                 num_lidar_points = annotation['num_lidar_pts']
                 car_points = points_in_box(object, lidar_pointcloud.points[:3, :])
                 car_info = {
+                    'sample_token': sample_token,
                     'lidar_filepath': lidar_filepath,
                     'center': object.center.tolist(),
                     'wlh': object.wlh.tolist(),
@@ -56,11 +52,13 @@ def find_eligible_objects():
                 }
                 
                 if num_lidar_points > 300:
-                    found_target = True
-                    break
+                    targets.append(car_info)
+                    if len(targets) >= num_to_find:
+                        found_target = True
+                        break
         if found_target:
             break
-    return car_info
+    return targets
 
 def load_pcd(pcd_file):
     if pcd_file.endswith('.bin'):
@@ -102,13 +100,14 @@ def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_i
     return x_t
 
         
-def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, center, wlh, angle, num_diff_samples):
-    center = np.array(center)
+def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh, angle, num_diff_samples):
+    torch.cuda.empty_cache()
+    torch.backends.cudnn.deterministic = True
+
     x_size = torch.Tensor(wlh).float().unsqueeze(0)
     x_orientation = torch.ones((1,1)) * angle
-    pcd = load_pcd(lidar_filepath)
-    x_object = torch.from_numpy(pcd[car_points]) - center
-    x_center = torch.from_numpy(cartesian_to_cylindrical(center[None, :])).float()
+    x_object = torch.from_numpy(car_points)
+    x_center = torch.from_numpy(center_cyl).float()
 
     x_init = x_object.clone().cuda()    
     batch_indices = torch.zeros(x_init.shape[0]).long().cuda()
@@ -135,28 +134,86 @@ def denoise_object_from_pcd(model: DiffusionPoints, lidar_filepath, car_points, 
 
     return x_gen_eval.cpu().detach().numpy(), x_object.cpu().detach().numpy()
 
-def find_pcd_and_test_on_object(output_path, name):
-    config = 'lidiff/config/object_generation/config_object_generation_cyclical_coords.yaml'
-    weights = 'lidiff/checkpoints/nuscenes_cars_generation_cyclical_coordinates_1_epoch=99.ckpt'
-    cfg = yaml.safe_load(open(config))
-    model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
-    model.eval()
-    car_info = find_eligible_objects()
+def extract_car_info(car_info):
     rotation_real = np.array(car_info['rotation_real'])
     rotation_imaginary = np.array(car_info['rotation_imaginary'])
     orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
+    size = np.array(car_info['wlh'])
+    center = np.array(car_info['center'])
+    pcd = load_pcd(car_info['lidar_filepath'])[car_info['car_points']] - center
+    center_cyl = cartesian_to_cylindrical(center[None, :])
+    return pcd, center_cyl, size, extract_yaw_angle(orientation)
+
+def find_pcd_and_test_on_object(output_path, name, model):
+    car_info = find_eligible_objects()[0]
+    pcd, center_cyl, size, yaw = extract_car_info(car_info)
 
     x_gen, x_orig = denoise_object_from_pcd(
         model,
-        car_info['lidar_filepath'], 
-        car_info['car_points'], 
-        car_info['center'], 
-        car_info['wlh'], 
-        extract_yaw_angle(orientation),
+        pcd, 
+        center_cyl, 
+        size, 
+        yaw,
         1,
     )
-    np.savetxt(f'{output_path}/{name}_generated.txt', x_gen)
-    np.savetxt(f'{output_path}/{name}_orig.txt', x_orig)
+    np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
+    np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
+
+def find_pcd_and_interpolate_condition(output_path, name, condition, num_to_find, model):
+    car_infos = find_eligible_objects(num_to_find=num_to_find)
+    for car_info in car_infos:
+        print(f'Generating using car info {car_info["sample_token"]}')
+        pcd, center_cyl, size, yaw = extract_car_info(car_info)
+
+        def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw):
+            x_gen, x_orig = denoise_object_from_pcd(
+                model,
+                pcd,
+                center_cyl,
+                size, 
+                yaw,
+                1,
+            )
+            np.savetxt(f'{output_path}/{name}/{car_info["sample_token"]}_{condition}_interp_{index}.txt', x_gen)
+            np.savetxt(f'{output_path}/{name}/{car_info["sample_token"]}_orig.txt', x_orig)
+
+        if condition == 'angle':
+            orig = yaw
+            angles = np.linspace(start=orig, stop=orig*-1, num=5)
+            print(f'Interpolating Yaw')
+            for index, angle in enumerate(angles):
+                do_gen(condition, index=index, yaw=angle)
+        if condition == 'center':
+            start = center_cyl[:, 0]
+            linspace_ring = np.linspace(start=start, stop=start*-1, num=5)
+            start = center_cyl[:, 1]
+            linspace_dist = np.linspace(start=start, stop=start*2, num=3)
+            print(f'Interpolating Cylindrical Angle')
+            for index, ring in enumerate(linspace_ring):
+                new_cyl = center_cyl.copy()
+                new_cyl[:,0] = ring
+                do_gen(condition, index=index, center_cyl=new_cyl)
+            print(f'Interpolating Cylindrical Distance')
+            for index, dist in enumerate(linspace_dist):
+                new_cyl = center_cyl.copy()
+                new_cyl[:,1] = dist
+                do_gen(condition, index=index, center_cyl=new_cyl)
+            
 
 if __name__=='__main__':
-    find_pcd_and_test_on_object('lidiff/random_pcds/generated_pcd', 'full_diff_250_steps_2')
+    task = sys.argv[1]
+    output_path, name = 'lidiff/random_pcds/generated_pcd', 'cylindrical_condition_interp_1'
+    os.makedirs(f'{output_path}/{name}/', exist_ok=True)
+    config = 'lidiff/config/object_generation/config_object_generation_cyclical_coords.yaml'
+    weights = 'lidiff/checkpoints/nuscenes_cars_generation_cyclical_coordinates_1_epoch=99.ckpt'
+    cfg = yaml.safe_load(open(config))
+    cfg['diff']['s_steps'] = 1000
+    cfg['diff']['uncond_w'] = 6.
+    model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
+    model.eval()
+
+    if task == 'recreate':
+        find_pcd_and_test_on_object(output_path, name)
+    if task == 'interpolate':
+        # find_pcd_and_interpolate_condition(output_path, name, condition='angle', num_to_find=2, model=model)
+        find_pcd_and_interpolate_condition(output_path, name, condition='center', num_to_find=2, model=model)
