@@ -215,5 +215,5 @@ if __name__=='__main__':
     if task == 'recreate':
         find_pcd_and_test_on_object(output_path, name)
     if task == 'interpolate':
-        # find_pcd_and_interpolate_condition(output_path, name, condition='angle', num_to_find=2, model=model)
+        find_pcd_and_interpolate_condition(output_path, name, condition='angle', num_to_find=2, model=model)
         find_pcd_and_interpolate_condition(output_path, name, condition='center', num_to_find=2, model=model)
