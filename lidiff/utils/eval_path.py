@@ -2,10 +2,9 @@ import os
 import numpy as np
 import open3d as o3d
 from lidiff.utils.metrics import ChamferDistance, PrecisionRecall, CompletionIoU, RMSE 
-from lidiff.tools.diff_map import load_poses
 import tqdm
 from natsort import natsorted
-from lidiff.tools.diff_map import DiffCompletion
+from lidiff.tools.diff_completion_pipeline import DiffCompletion
 from lidiff.utils.histogram_metrics import compute_hist_metrics 
 import click
 import json
@@ -16,6 +15,51 @@ completion_iou = CompletionIoU()
 rmse = RMSE()
 chamfer_distance = ChamferDistance()
 precision_recall = PrecisionRecall(0.05,2*0.05,100)
+
+def parse_calibration(filename):
+    calib = {}
+
+    calib_file = open(filename)
+    for line in calib_file:
+        key, content = line.strip().split(":")
+        values = [float(v) for v in content.strip().split()]
+
+        pose = np.zeros((4, 4))
+        pose[0, 0:4] = values[0:4]
+        pose[1, 0:4] = values[4:8]
+        pose[2, 0:4] = values[8:12]
+        pose[3, 3] = 1.0
+
+        calib[key] = pose
+
+    calib_file.close()
+
+    return calib
+
+def load_poses(calib_fname, poses_fname):
+    if os.path.exists(calib_fname):
+        calibration = parse_calibration(calib_fname)
+        Tr = calibration["Tr"]
+        Tr_inv = np.linalg.inv(Tr)
+
+    poses_file = open(poses_fname)
+    poses = []
+
+    for line in poses_file:
+        values = [float(v) for v in line.strip().split()]
+
+        pose = np.zeros((4, 4))
+        pose[0, 0:4] = values[0:4]
+        pose[1, 0:4] = values[4:8]
+        pose[2, 0:4] = values[8:12]
+        pose[3, 3] = 1.0
+
+        if os.path.exists(calib_fname):
+            poses.append(np.matmul(Tr_inv, np.matmul(pose, Tr)))
+        else:
+            poses.append(pose)
+
+    return poses
 
 
 def get_scan_completion(scan_path, path, diff_completion, max_range):
