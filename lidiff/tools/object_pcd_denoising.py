@@ -19,7 +19,7 @@ import sys
 def get_min_points_from_class(object_class):
     return {
         'vehicle.car':300,
-        'vehicle.bicycle':50
+        'vehicle.bicycle':100
     }[object_class]
 
 def find_eligible_objects(num_to_find=1, object_class='vehicle.car'):
@@ -171,7 +171,7 @@ def find_pcd_and_test_on_object(output_path, name, model, class_name):
         center_cyl, 
         size, 
         yaw,
-        1,
+        5,
     )
     np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
