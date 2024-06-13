@@ -119,3 +119,9 @@ color_map = {
   18: [150, 240, 255],
   19: [0, 0, 255],
 }
+
+class_mapping = {
+    'vehicle.car': 0,
+    'vehicle.bicycle': 1,
+    'vehicle.motorcycle': 2,
+}

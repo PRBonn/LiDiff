@@ -23,8 +23,7 @@ def parse_objects_from_nuscenes(points_threshold, object_name, object_tag):
 
     train_split = set(splits.train)
 
-    # Loop through scenes and extract car annotations and LiDAR data
-    car_lidar_data = {'train':[], 'val':[]}
+    object_lidar_data = {'train':[], 'val':[]}
     for sample in tqdm(nusc.sample):
         scene_token = sample['scene_token']
         sample_token = sample['token']
@@ -42,7 +41,7 @@ def parse_objects_from_nuscenes(points_threshold, object_name, object_tag):
                 num_lidar_points = annotation['num_lidar_pts']
                 if num_lidar_points < points_threshold:
                     continue
-                car_info = {
+                object_info = {
                     'instance_token': object.token,
                     'sample_token': sample_token,
                     'scene_token': scene_token,
@@ -54,14 +53,15 @@ def parse_objects_from_nuscenes(points_threshold, object_name, object_tag):
                     'rotation_real': object.orientation.real.tolist(),
                     'rotation_imaginary': object.orientation.imaginary.tolist(),
                 }
-                car_lidar_data[split].append(car_info)
+                object_lidar_data[split].append(object_info)
 
 
+    print(f"After parsing, {len(object_lidar_data['train'])} objects in train, {len(object_lidar_data['val'])} in val")
     with open(f'{output_dir}/{object_name}_from_nuscenes_train_val.json', 'w') as fp:
-        json.dump(car_lidar_data, fp)
+        json.dump(object_lidar_data, fp)
 
 if __name__ == '__main__':
-    points_threshold = 5
-    object_name = 'bikes'
-    object_tag = 'vehicle.bicycle'
+    points_threshold = 50
+    object_name = 'motorcycles'
+    object_tag = 'vehicle.motorcycle'
     parse_objects_from_nuscenes(points_threshold, object_name, object_tag)
