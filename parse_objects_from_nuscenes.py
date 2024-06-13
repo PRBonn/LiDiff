@@ -10,7 +10,7 @@ import nuscenes.utils.splits as splits
 from tqdm import tqdm
 
 
-def parse_cars_from_nuscenes(points_threshold):
+def parse_objects_from_nuscenes(points_threshold, object_name, object_tag):
     # Path to the dataset
     dataroot = '/datasets_local/nuscenes'
 
@@ -18,7 +18,7 @@ def parse_cars_from_nuscenes(points_threshold):
     nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
 
     # Directory to save extracted data
-    output_dir = '/home/ekirby/scania/ekirby/datasets/cars_from_nuscenes'
+    output_dir = f'/home/ekirby/scania/ekirby/datasets/{object_name}_from_nuscenes'
     os.makedirs(output_dir, exist_ok=True)
 
     train_split = set(splits.train)
@@ -37,7 +37,7 @@ def parse_cars_from_nuscenes(points_threshold):
         lidar_filepath = os.path.join(dataroot, lidar_data['filename'])
 
         for object in objects:
-            if 'vehicle.car' in object.name:
+            if object_tag in object.name:
                 annotation = nusc.get('sample_annotation', object.token)
                 num_lidar_points = annotation['num_lidar_pts']
                 if num_lidar_points < points_threshold:
@@ -48,7 +48,7 @@ def parse_cars_from_nuscenes(points_threshold):
                     'scene_token': scene_token,
                     'sample_data_lidar_token': sample_data_lidar_token,
                     'lidar_data_filepath': lidar_filepath,
-                    'class': 'car',
+                    'class': object_tag,
                     'center': object.center.tolist(),
                     'size': object.wlh.tolist(),
                     'rotation_real': object.orientation.real.tolist(),
@@ -57,9 +57,11 @@ def parse_cars_from_nuscenes(points_threshold):
                 car_lidar_data[split].append(car_info)
 
 
-    with open(f'{output_dir}/cars_from_nuscenes_train_val.json', 'w') as fp:
+    with open(f'{output_dir}/{object_name}_from_nuscenes_train_val.json', 'w') as fp:
         json.dump(car_lidar_data, fp)
 
 if __name__ == '__main__':
-    points_threshold = 10
-    parse_cars_from_nuscenes(points_threshold)
+    points_threshold = 5
+    object_name = 'bikes'
+    object_tag = 'vehicle.bicycle'
+    parse_objects_from_nuscenes(points_threshold, object_name, object_tag)

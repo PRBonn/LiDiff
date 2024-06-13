@@ -212,10 +212,8 @@ class DiffusionPoints(LightningModule):
 
     def validation_step(self, batch:dict, batch_idx):
         self.model.eval()
-
-        self.model.eval()
         with torch.no_grad():
-            x_init = batch['pcd_object']
+            x_object = batch['pcd_object']
 
             x_center = batch['center']
             x_size = batch['size']
@@ -227,30 +225,17 @@ class DiffusionPoints(LightningModule):
                 x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
 
-            x_gen_evals = []
-            for _ in tqdm(range(self.hparams['diff']['num_val_samples'])):
-                x_feats = x_init + torch.randn(x_init.shape, device=self.device)
-                x_full = self.points_to_tensor(x_feats, batch['batch_indices'])
-                x_gen_eval = self.p_sample_loop(x_init, x_full, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
-                x_gen_evals.append(x_gen_eval.F)
+            x_t = torch.randn(x_object.shape, device=self.device)
+            x_t = self.points_to_tensor(x_t, batch['batch_indices'])
+            x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points']).F
 
             curr_index = 0
             cd_mean_as_pct_of_box = []
             
             for pcd_index in range(batch['num_points'].shape[0]):
                 max_index = int(curr_index + batch['num_points'][pcd_index].item())
-                object_pcd = x_init[curr_index:max_index]
-                
-                local_chamfer = ChamferDistance()
-                for generated_pcds in x_gen_evals:
-                    genrtd_pcd = generated_pcds[curr_index:max_index]
-
-                    pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
-
-                    local_chamfer.update(pcd_gt, pcd_pred)
-
-                best_index = local_chamfer.best_index()
-                genrtd_pcd = x_gen_evals[best_index][curr_index:max_index]
+                object_pcd = x_object[curr_index:max_index]
+                genrtd_pcd = x_gen_eval[curr_index:max_index]
 
                 pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=genrtd_pcd, object_pcd=object_pcd)
 

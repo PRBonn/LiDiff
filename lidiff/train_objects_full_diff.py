@@ -94,9 +94,9 @@ def main(config, weights, checkpoint, test):
                         max_epochs= cfg['train']['max_epoch'],
                         callbacks=[lr_monitor, checkpoint_saver],
                         check_val_every_n_epoch=10,
-                        num_sanity_val_steps=0,
+                        num_sanity_val_steps=1,
                         limit_test_batches=10,
-                        limit_val_batches=10,
+                        limit_val_batches=1,
                 )
 
 

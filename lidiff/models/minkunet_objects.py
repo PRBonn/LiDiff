@@ -385,7 +385,7 @@ class MinkUNetDiff(nn.Module):
         batch_temp = torch.unique(x0.C[:,0], return_counts=True)[1]
         p0 = torch.repeat_interleave(p0, batch_temp, dim=0).flatten(-2, -1)
         t0 = t0[x0.C[:,0].long()]
-        w0 = self.latemp_stage1(torch.cat((p0,t0),-1))
+        w0 = self.latemp_stage1(torch.cat((p0,t0),-1)) # append class information here
 
         x1 = self.stage1(x0*w0)
         p1 = self.latent_stage2(cond_emb) 
