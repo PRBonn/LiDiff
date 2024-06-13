@@ -16,13 +16,20 @@ from lidiff.utils.metrics import ChamferDistance
 from diffusers import DPMSolverMultistepScheduler
 import sys
 
-def find_eligible_objects(num_to_find=1):
+def get_min_points_from_class(object_class):
+    return {
+        'vehicle.car':300,
+        'vehicle.bicycle':50
+    }[object_class]
+
+def find_eligible_objects(num_to_find=1, object_class='vehicle.car'):
     dataroot = '/datasets_local/nuscenes'
     nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
 
     train_split = set(splits.train)
     targets = []
     found_target = False
+    min_points = get_min_points_from_class(object_class)
     for sample in nusc.sample:
         scene_token = sample['scene_token']
         sample_data_lidar_token = sample['data']['LIDAR_TOP']
@@ -36,23 +43,23 @@ def find_eligible_objects(num_to_find=1):
         objects = nusc.get_sample_data(sample_data_lidar_token)[1]
 
         for object in objects:
-            if 'vehicle.car' in object.name:
+            if object_class in object.name:
                 annotation = nusc.get('sample_annotation', object.token)
                 num_lidar_points = annotation['num_lidar_pts']
-                car_points = points_in_box(object, lidar_pointcloud.points[:3, :])
-                car_info = {
+                points = points_in_box(object, lidar_pointcloud.points[:3, :])
+                object_info = {
                     'sample_token': object.token,
                     'lidar_filepath': lidar_filepath,
                     'center': object.center.tolist(),
                     'wlh': object.wlh.tolist(),
                     'rotation_real': object.orientation.real.tolist(),
                     'rotation_imaginary': object.orientation.imaginary.tolist(),
-                    'car_points': car_points.tolist(),
+                    'points': points.tolist(),
                     'num_lidar_points': num_lidar_points
                 }
                 
-                if num_lidar_points > 300:
-                    targets.append(car_info)
+                if num_lidar_points > min_points:
+                    targets.append(object_info)
                     if len(targets) >= num_to_find:
                         found_target = True
                         break
@@ -98,7 +105,6 @@ def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_i
         torch.cuda.empty_cache()
 
     return x_t
-
         
 def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh, angle, num_diff_samples):
     torch.cuda.empty_cache()
@@ -145,19 +151,19 @@ def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh,
 
     return x_gen_eval.cpu().detach().numpy(), x_object.cpu().detach().numpy()
 
-def extract_car_info(car_info):
-    rotation_real = np.array(car_info['rotation_real'])
-    rotation_imaginary = np.array(car_info['rotation_imaginary'])
+def extract_object_info(object_info):
+    rotation_real = np.array(object_info['rotation_real'])
+    rotation_imaginary = np.array(object_info['rotation_imaginary'])
     orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
-    size = np.array(car_info['wlh'])
-    center = np.array(car_info['center'])
-    pcd = load_pcd(car_info['lidar_filepath'])[car_info['car_points']] - center
+    size = np.array(object_info['wlh'])
+    center = np.array(object_info['center'])
+    pcd = load_pcd(object_info['lidar_filepath'])[object_info['points']] - center
     center_cyl = cartesian_to_cylindrical(center[None, :])
     return pcd, center_cyl, size, extract_yaw_angle(orientation)
 
-def find_pcd_and_test_on_object(output_path, name, model):
-    car_info = find_eligible_objects()[0]
-    pcd, center_cyl, size, yaw = extract_car_info(car_info)
+def find_pcd_and_test_on_object(output_path, name, model, class_name):
+    object_info = find_eligible_objects(object_class=class_name)[0]
+    pcd, center_cyl, size, yaw = extract_object_info(object_info)
 
     x_gen, x_orig = denoise_object_from_pcd(
         model,
@@ -170,11 +176,11 @@ def find_pcd_and_test_on_object(output_path, name, model):
     np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
 
-def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model):
-    car_infos = find_eligible_objects(num_to_find=num_to_find)
-    for car_info in car_infos:
-        print(f'Generating using car info {car_info["sample_token"]}')
-        pcd, center_cyl, size, yaw = extract_car_info(car_info)
+def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name):
+    object_infos = find_eligible_objects(num_to_find=num_to_find, object_class=class_name)
+    for object_info in object_infos:
+        print(f'Generating using car info {object_info["sample_token"]}')
+        pcd, center_cyl, size, yaw = extract_object_info(object_info)
         def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw):
                 x_gen, x_orig = denoise_object_from_pcd(
                     model,
@@ -184,8 +190,8 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     yaw,
                     1,
                 )
-                np.savetxt(f'{output_path}/{name}/{car_info["sample_token"]}_{condition}_interp_{index}.txt', x_gen)
-                np.savetxt(f'{output_path}/{name}/{car_info["sample_token"]}_orig.txt', x_orig)
+                np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_{condition}_interp_{index}.txt', x_gen)
+                np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_orig.txt', x_orig)
 
         for condition in conditions:
             if condition == 'angle':
@@ -199,6 +205,8 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                 linspace_ring = np.linspace(start=start, stop=start*-1, num=5)
                 start = center_cyl[:, 1]
                 linspace_dist = np.linspace(start=start, stop=start*2, num=3)
+                start = center_cyl[:, 2]
+                linspace_vertical_dist = np.linspace(start=start-1, stop=start+1, num=5)
                 print(f'Interpolating Cylindrical Angle')
                 for index, ring in enumerate(linspace_ring):
                     new_cyl = center_cyl.copy()
@@ -209,13 +217,18 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     new_cyl = center_cyl.copy()
                     new_cyl[:,1] = dist
                     do_gen(condition+'_distance', index=index, center_cyl=new_cyl)
+                print(f'Interpolating Vertical Distance')
+                for index, dist in enumerate(linspace_vertical_dist):
+                    new_cyl = center_cyl.copy()
+                    new_cyl[:,2] = dist
+                    do_gen(condition+'_vertical_distance', index=index, center_cyl=new_cyl)
             
 
-def main(task):
-    output_path, name = 'lidiff/random_pcds/generated_pcd', 'cylindrical_condition_interp_2'
+def main(task, class_name):
+    output_path, name = 'lidiff/random_pcds/generated_pcd', 'bike_gen_1'
     os.makedirs(f'{output_path}/{name}/', exist_ok=True)
-    config = 'lidiff/config/object_generation/config_object_generation_cyclical_coords.yaml'
-    weights = 'lidiff/checkpoints/nuscenes_cars_generation_cyclical_coordinates_1_epoch=99.ckpt'
+    config = 'lidiff/config/object_generation/config_bike_gen.yaml'
+    weights = 'lidiff/checkpoints/bike_gen_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     cfg['diff']['s_steps'] = 1000
     cfg['diff']['uncond_w'] = 6.
@@ -223,9 +236,10 @@ def main(task):
     model.eval()
 
     if task == 'recreate':
-        find_pcd_and_test_on_object(output_path, name)
+        find_pcd_and_test_on_object(output_path, name, model, class_name)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model)
+        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name)
 if __name__=='__main__':
     task = sys.argv[1]
-    main(task)
+    class_name = sys.argv[2]
+    main(task, class_name)

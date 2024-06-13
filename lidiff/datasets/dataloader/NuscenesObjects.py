@@ -26,6 +26,7 @@ class NuscenesObjectsSet(Dataset):
     def __getitem__(self, index):
         object_json = self.data_index[index]
         
+        class_name = object_json['class']
         points = np.fromfile(object_json['lidar_data_filepath'], dtype=np.float32).reshape((-1, 5)) #(x, y, z, intensity, ring index)
         center = np.array(object_json['center'])
         size = np.array(object_json['size'])
@@ -44,4 +45,4 @@ class NuscenesObjectsSet(Dataset):
         if self.do_recenter:
             object_points -= center
 
-        return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes]
+        return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name]

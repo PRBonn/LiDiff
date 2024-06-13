@@ -3,6 +3,7 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 from lidiff.datasets.dataloader.NuscenesObjects import NuscenesObjectsSet
 import warnings
+from lidiff.utils import data_map
 from lidiff.utils.three_d_helpers import cartesian_to_cylindrical
 import numpy as np
 
@@ -81,6 +82,8 @@ class NuscenesObjectCollator:
             center = torch.from_numpy(cartesian_to_cylindrical(np.stack(batch[1]))).float()
             orientation = torch.Tensor([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]]).float()
 
+        class_mapping = torch.tensor([data_map.class_mapping[class_name] for class_name in batch[6]]).reshape(-1, 1)
+
         return {'pcd_object': pcd_object, 
             'center': center,
             'size': torch.stack(batch[2]).float(),
@@ -88,6 +91,7 @@ class NuscenesObjectCollator:
             'batch_indices': batch_indices,
             'num_points': num_points_tensor,
             'ring_indexes': torch.vstack(batch[5]),
+            'class': class_mapping
         }
 
 dataloaders = {
