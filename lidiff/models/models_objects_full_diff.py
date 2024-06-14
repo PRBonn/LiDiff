@@ -79,7 +79,8 @@ class DiffusionPoints(LightningModule):
         self.model = minknet.MinkUNetDiff(
             in_channels=3, 
             out_channels=self.hparams['model']['out_dim'], 
-            embeddings_type=self.hparams['model']['embeddings']
+            embeddings_type=self.hparams['model']['embeddings'],
+            class_conditioning=self.hparams['train']['class_conditional']
         )
 
         self.chamfer_distance = ChamferDistance()
@@ -146,6 +147,11 @@ class DiffusionPoints(LightningModule):
         out = self.model(x_object, x_sparse, t, conditions)
         torch.cuda.empty_cache()
         return out.reshape(t.shape[0],-1,3)
+    
+    def forward_class_conditional(self, x_object, x_sparse, t, conditions, x_class):
+        out = self.model.forward_with_class(x_object, x_sparse, t, conditions, x_class)
+        torch.cuda.empty_cache()
+        return out.reshape(t.shape[0],-1,3)
 
     def points_to_tensor(self, x_feats, batched_indices):
         x_coord = x_feats.clone()
@@ -195,7 +201,10 @@ class DiffusionPoints(LightningModule):
             x_cond = torch.hstack((x_center, x_size, x_orientation))
 
         x_sparse = x_object_noised.sparse()
-        denoise_t = self.forward(x_object_noised, x_sparse, t, x_cond).squeeze(1)
+        if self.hparams['train']['class_conditional']:
+            denoise_t = self.forward_class_conditional(x_object_noised, x_sparse, t, x_cond, x_class).squeeze(1)
+        else:
+            denoise_t = self.forward(x_object_noised, x_sparse, t, x_cond).squeeze(1)
         loss_mse = self.p_losses(denoise_t, noise)
         loss_mean = (denoise_t.mean())**2
         loss_std = (denoise_t.std() - 1.)**2

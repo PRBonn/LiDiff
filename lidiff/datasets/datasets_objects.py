@@ -1,4 +1,6 @@
 import torch
+import torch.nn.functional
+import torch.utils
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 from lidiff.datasets.dataloader.NuscenesObjects import NuscenesObjectsSet
@@ -86,6 +88,7 @@ class NuscenesObjectCollator:
             orientation = torch.Tensor([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]]).float()
 
         class_mapping = torch.tensor([data_map.class_mapping[class_name] for class_name in batch[6]]).reshape(-1, 1)
+        class_mapping = torch.nn.functional.one_hot(class_mapping, num_classes=3)
 
         return {'pcd_object': pcd_object, 
             'center': center,

@@ -100,6 +100,7 @@ class MinkUNetDiff(nn.Module):
             ME.MinkowskiBatchNorm(cs[0]),
             ME.MinkowskiReLU(inplace=True)
         )
+        self.class_conditioning = 3 if kwargs.get('class_conditioning', True) else 0
         num_conditions = 8
         self.num_cyclic_conditions = 2
         self.embeddings_type = kwargs.get('embeddings_type','positional')
@@ -112,7 +113,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage1 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[4]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[0]),
         )
@@ -137,7 +138,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage2 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[4]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[1]),
         )
@@ -162,7 +163,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage3 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[4]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[2]),
         )
@@ -187,7 +188,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage4 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[4]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[3]),
         )
@@ -212,7 +213,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up1 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[4]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[4]),
         )
@@ -240,7 +241,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up2 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[5]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[5]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[5], cs[5]),
         )
@@ -268,7 +269,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up3 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[6]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[6]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[6], cs[6]),
         )
@@ -296,7 +297,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up4 = nn.Sequential(
-            nn.Linear(cs[4]*num_conditions, cs[7]),
+            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[7]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[7], cs[7]),
         )
@@ -368,29 +369,30 @@ class MinkUNetDiff(nn.Module):
             emb = nn.functional.pad(emb, (0, 1), "constant", 0)
         return emb
 
-    def forward_with_class(self, x, x_sparse, t, y):
+    def forward_with_class(self, x, x_sparse, t, y, x_class):
         temp_emb = self.get_timestep_embedding(t)
         if self.embeddings_type == 'cyclical':
             cond_emb = torch.cat(
                 (
                     self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 
-                    self.get_positional_embedding(y[:,self.num_cyclic_conditions:-1])
+                    self.get_positional_embedding(y[:,self.num_cyclic_conditions:])
                 ), 1)
         else:
             cond_emb = self.get_positional_embedding(y[:,:-1])
-        class_cond = y[:,-1]
         x0 = self.stem(x_sparse)
         p0 = self.latent_stage1(cond_emb) 
         t0 = self.stage1_temp(temp_emb)
         batch_temp = torch.unique(x0.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p0 = torch.repeat_interleave(p0, batch_temp, dim=0).flatten(-2, -1)
         t0 = t0[x0.C[:,0].long()]
-        w0 = self.latemp_stage1(torch.cat((p0,t0,class_cond),-1)) # append class information here
+        w0 = self.latemp_stage1(torch.cat((p0,t0,class_cond),-1))
 
         x1 = self.stage1(x0*w0)
         p1 = self.latent_stage2(cond_emb) 
         t1 = self.stage2_temp(temp_emb)
         batch_temp = torch.unique(x1.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p1 = torch.repeat_interleave(p1, batch_temp, dim=0).flatten(-2, -1)
         t1 = t1[x1.C[:,0].long()]
         w1 = self.latemp_stage2(torch.cat((p1,t1,class_cond),-1))
@@ -399,6 +401,7 @@ class MinkUNetDiff(nn.Module):
         p2 = self.latent_stage3(cond_emb) 
         t2 = self.stage3_temp(temp_emb)
         batch_temp = torch.unique(x2.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p2 = torch.repeat_interleave(p2, batch_temp, dim=0).flatten(-2, -1) 
         t2 = t2[x2.C[:,0].long()]
         w2 = self.latemp_stage3(torch.cat((p2,t2,class_cond),-1))
@@ -407,6 +410,7 @@ class MinkUNetDiff(nn.Module):
         p3 = self.latent_stage4(cond_emb) 
         t3 = self.stage4_temp(temp_emb)
         batch_temp = torch.unique(x3.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p3 = torch.repeat_interleave(p3, batch_temp, dim=0).flatten(-2, -1) 
         t3 = t3[x3.C[:,0].long()]
         w3 = self.latemp_stage4(torch.cat((p3,t3,class_cond),-1))
@@ -415,6 +419,7 @@ class MinkUNetDiff(nn.Module):
         p4 = self.latent_up1(cond_emb) 
         t4 = self.up1_temp(temp_emb)
         batch_temp = torch.unique(x4.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p4 = torch.repeat_interleave(p4, batch_temp, dim=0).flatten(-2, -1) 
         t4 = t4[x4.C[:,0].long()]
         w4 = self.latemp_up1(torch.cat((t4,p4,class_cond),-1))
@@ -425,6 +430,7 @@ class MinkUNetDiff(nn.Module):
         p5 = self.latent_up2(cond_emb) 
         t5 = self.up2_temp(temp_emb)
         batch_temp = torch.unique(y1.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p5 = torch.repeat_interleave(p5, batch_temp, dim=0).flatten(-2, -1)
         t5 = t5[y1.C[:,0].long()]
         w5 = self.latemp_up2(torch.cat((p5,t5,class_cond),-1))
@@ -435,6 +441,7 @@ class MinkUNetDiff(nn.Module):
         p6 = self.latent_up3(cond_emb) 
         t6 = self.up3_temp(temp_emb)
         batch_temp = torch.unique(y2.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p6 = torch.repeat_interleave(p6, batch_temp, dim=0).flatten(-2, -1)
         t6 = t6[y2.C[:,0].long()]
         w6 = self.latemp_up3(torch.cat((p6,t6,class_cond),-1))       
@@ -445,6 +452,7 @@ class MinkUNetDiff(nn.Module):
         p7 = self.latent_up4(cond_emb) 
         t7 = self.up4_temp(temp_emb)
         batch_temp = torch.unique(y3.C[:,0], return_counts=True)[1]
+        class_cond = torch.repeat_interleave(x_class, batch_temp, dim=0).flatten(-2, -1)
         p7 = torch.repeat_interleave(p7, batch_temp, dim=0).flatten(-2, -1)
         t7 = t7[y3.C[:,0].long()]
         w7 = self.latemp_up4(torch.cat((p7,t7,class_cond),-1))
