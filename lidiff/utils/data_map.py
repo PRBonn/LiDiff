@@ -121,7 +121,7 @@ color_map = {
 }
 
 class_mapping = {
-    'vehicle.car': 0,
+    'car': 0,
     'vehicle.bicycle': 1,
     'vehicle.motorcycle': 2,
 }

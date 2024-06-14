@@ -30,6 +30,7 @@ class NuscenesObjectsDataModule(LightningDataModule):
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
                 split='train', 
+                points_per_object=self.cfg['data']['points_per_object']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'], shuffle=True,
                             num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
@@ -40,7 +41,8 @@ class NuscenesObjectsDataModule(LightningDataModule):
 
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
-                split='val', 
+                split='val',
+                points_per_object=self.cfg['data']['points_per_object']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'],
                             num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
@@ -52,6 +54,7 @@ class NuscenesObjectsDataModule(LightningDataModule):
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
                 split='val', 
+                points_per_object=self.cfg['data']['points_per_object']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'],
                              num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
