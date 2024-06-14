@@ -52,16 +52,33 @@ def parse_objects_from_nuscenes(points_threshold, object_name, object_tag):
                     'size': object.wlh.tolist(),
                     'rotation_real': object.orientation.real.tolist(),
                     'rotation_imaginary': object.orientation.imaginary.tolist(),
+                    'num_lidar_points': num_lidar_points,
                 }
                 object_lidar_data[split].append(object_info)
-
 
     print(f"After parsing, {len(object_lidar_data['train'])} objects in train, {len(object_lidar_data['val'])} in val")
     with open(f'{output_dir}/{object_name}_from_nuscenes_train_val.json', 'w') as fp:
         json.dump(object_lidar_data, fp)
 
+    return object_lidar_data, output_dir
+
+def parse_largest_x_from_dataset(output_dir, object_name, object_lidar_data, top_x):
+    reduced_train_val_objects = {'train':[], 'val':[]}
+    train_objects = object_lidar_data['train']
+    val_objects = object_lidar_data['val']
+    print("Sorting objcet lidar data")
+    train_sorted_by_num_points = sorted(train_objects, key=lambda x: x['num_lidar_points'], reverse=True)
+    val_sorted_by_num_points = sorted(val_objects, key=lambda x: x['num_lidar_points'], reverse=True)
+    print("Taking top x from object lidar data")
+    reduced_train_val_objects['train'] = train_sorted_by_num_points[:top_x]
+    reduced_train_val_objects['val'] = val_sorted_by_num_points[:top_x]
+
+    with open(f'{output_dir}/{object_name}_from_nuscenes_train_val_reduced.json', 'w') as fp:
+        json.dump(reduced_train_val_objects, fp)
+
 if __name__ == '__main__':
     points_threshold = 50
-    object_name = 'motorcycles'
-    object_tag = 'vehicle.motorcycle'
-    parse_objects_from_nuscenes(points_threshold, object_name, object_tag)
+    object_name = 'cars_with_num_points'
+    object_tag = 'vehicle.car'
+    object_lidar_data, output_dir = parse_objects_from_nuscenes(points_threshold, object_name, object_tag)
+    parse_largest_x_from_dataset(output_dir, object_name, object_lidar_data, top_x=4235)

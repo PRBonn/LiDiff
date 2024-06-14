@@ -19,7 +19,8 @@ import sys
 def get_min_points_from_class(object_class):
     return {
         'vehicle.car':300,
-        'vehicle.bicycle':100
+        'vehicle.bicycle':100,
+        'vehicle.motorcycle':100,
     }[object_class]
 
 def find_eligible_objects(num_to_find=1, object_class='vehicle.car'):
@@ -27,6 +28,7 @@ def find_eligible_objects(num_to_find=1, object_class='vehicle.car'):
     nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
 
     train_split = set(splits.train)
+    val_split = set(splits.val)
     targets = []
     found_target = False
     min_points = get_min_points_from_class(object_class)
@@ -34,7 +36,7 @@ def find_eligible_objects(num_to_find=1, object_class='vehicle.car'):
         scene_token = sample['scene_token']
         sample_data_lidar_token = sample['data']['LIDAR_TOP']
         scene_name = nusc.get('scene', scene_token)['name']
-        if scene_name in train_split:
+        if scene_name in val_split:
             continue
 
         lidar_data = nusc.get('sample_data', sample_data_lidar_token)
@@ -171,7 +173,7 @@ def find_pcd_and_test_on_object(output_path, name, model, class_name):
         center_cyl, 
         size, 
         yaw,
-        5,
+        10,
     )
     np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
@@ -225,10 +227,10 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
             
 
 def main(task, class_name):
-    output_path, name = 'lidiff/random_pcds/generated_pcd', 'bike_gen_1'
+    output_path, name = 'lidiff/random_pcds/generated_pcd', 'moto_gen_1'
     os.makedirs(f'{output_path}/{name}/', exist_ok=True)
-    config = 'lidiff/config/object_generation/config_bike_gen.yaml'
-    weights = 'lidiff/checkpoints/bike_gen_1_epoch=99.ckpt'
+    config = 'lidiff/config/object_generation/config_moto_gen.yaml'
+    weights = 'lidiff/checkpoints/moto_gen_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     cfg['diff']['s_steps'] = 1000
     cfg['diff']['uncond_w'] = 6.

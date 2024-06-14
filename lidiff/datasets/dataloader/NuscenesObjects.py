@@ -40,7 +40,7 @@ class NuscenesObjectsSet(Dataset):
         points_from_object = points_in_box(box, points=points[:,:3].T, wlh_factor=self.volume_expansion)
         object_points = torch.from_numpy(points[points_from_object])[:,:3]
 
-        if self.points_per_object != None:
+        if self.points_per_object > 0:
             pcd_object = o3d.geometry.PointCloud()
             pcd_object.points = o3d.utility.Vector3dVector(object_points)
 
