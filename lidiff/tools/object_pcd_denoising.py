@@ -24,7 +24,7 @@ def get_min_points_from_class(object_class):
         'vehicle.motorcycle':100,
     }[object_class]
 
-def find_eligible_objects(num_to_find=1, object_class='vehicle.car', split='train'):
+def find_eligible_objects(num_to_find=1, object_class='vehicle.car', split='train', min_points=None):
     dataroot = '/datasets_local/nuscenes'
     nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
 
@@ -33,7 +33,7 @@ def find_eligible_objects(num_to_find=1, object_class='vehicle.car', split='trai
     split_to_skip = val_split if split == 'train' else train_split
     targets = []
     found_target = False
-    min_points = get_min_points_from_class(object_class)
+    min_points = min_points if min_points != None else get_min_points_from_class(object_class)
     for sample in nusc.sample:
         scene_token = sample['scene_token']
         sample_data_lidar_token = sample['data']['LIDAR_TOP']
@@ -166,8 +166,8 @@ def extract_object_info(object_info):
     center_cyl = cartesian_to_cylindrical(center[None, :])
     return pcd, center_cyl, size, extract_yaw_angle(orientation)
 
-def find_pcd_and_test_on_object(output_path, name, model, class_name, split, do_viz):
-    object_info = find_eligible_objects(object_class=class_name, split=split)[0]
+def find_pcd_and_test_on_object(output_path, name, model, class_name, split, min_points, do_viz):
+    object_info = find_eligible_objects(object_class=class_name, split=split, min_points=min_points)[0]
     pcd, center_cyl, size, yaw = extract_object_info(object_info)
 
     x_gen, x_orig = denoise_object_from_pcd(
@@ -182,8 +182,8 @@ def find_pcd_and_test_on_object(output_path, name, model, class_name, split, do_
     np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
 
-def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name, split, do_viz):
-    object_infos = find_eligible_objects(num_to_find=num_to_find, object_class=class_name, split=split)
+def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name, split, min_points, do_viz):
+    object_infos = find_eligible_objects(num_to_find=num_to_find, object_class=class_name, split=split, min_points=min_points)
     for object_info in object_infos:
         print(f'Generating using car info {object_info["sample_token"]}')
         pcd, center_cyl, size, yaw = extract_object_info(object_info)
@@ -269,13 +269,19 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
               help='Which split to take the conditioning information from.',
               default='train'
             )
+@click.option('--min_points',
+              '-m',
+              type=int,
+              help='Minimum number of points per cloud.',
+              default=None
+)
 @click.option('--do_viz',
               '-v',
               type=bool,
               help='Generate step visualizations (every step). True or False.',
               default=False
               )
-def main(config, weights, output_path, name, task, class_name, split, do_viz):
+def main(config, weights, output_path, name, task, class_name, split, min_points, do_viz):
     os.makedirs(f'{output_path}/{name}/', exist_ok=True)
     cfg = yaml.safe_load(open(config))
     cfg['diff']['s_steps'] = 1000
@@ -284,9 +290,9 @@ def main(config, weights, output_path, name, task, class_name, split, do_viz):
     model.eval()
 
     if task == 'recreate':
-        find_pcd_and_test_on_object(output_path, name, model, class_name, split,do_viz=do_viz)
+        find_pcd_and_test_on_object(output_path, name, model, class_name, split, min_points, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name, split=split, do_viz=do_viz)
+        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name, split=split, min_points=min_points, do_viz=do_viz)
 
 if __name__ == "__main__":
     main()
