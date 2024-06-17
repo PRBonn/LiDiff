@@ -96,7 +96,7 @@ def main(config, weights, checkpoint, test):
                         check_val_every_n_epoch=10,
                         num_sanity_val_steps=1,
                         limit_test_batches=10,
-                        limit_val_batches=0,
+                        limit_val_batches=1,
                 )
 
 

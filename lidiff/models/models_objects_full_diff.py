@@ -103,10 +103,14 @@ class DiffusionPoints(LightningModule):
         return self.sqrt_alphas_cumprod[t][:,None].cuda() * x + \
                 self.sqrt_one_minus_alphas_cumprod[t][:,None].cuda() * noise
 
-    def classfree_forward(self, x_t, x_cond, x_uncond, t):
+    def classfree_forward(self, x_t, x_cond, x_uncond, t, x_class=None):
         x_t_sparse = x_t.sparse()
-        x_cond = self.forward(x_t, x_t_sparse, t, x_cond)            
-        x_uncond = self.forward(x_t, x_t_sparse, t,  x_uncond)
+        if self.hparams['train']['class_conditional']:
+            x_cond = self.forward_class_conditional(x_t, x_t_sparse, t, x_cond, x_class)            
+            x_uncond = self.forward_class_conditional(x_t, x_t_sparse, t,  x_uncond, x_class)
+        else:
+            x_cond = self.forward(x_t, x_t_sparse, t, x_cond)            
+            x_uncond = self.forward(x_t, x_t_sparse, t,  x_uncond)
 
         return x_uncond + self.w_uncond * (x_cond - x_uncond)
 
@@ -122,14 +126,14 @@ class DiffusionPoints(LightningModule):
         pcd.colors = o3d.utility.Vector3dVector(colors)
         return pcd
 
-    def p_sample_loop(self, x_t, x_cond, x_uncond, batch_indices, num_points):
+    def p_sample_loop(self, x_t, x_cond, x_uncond, batch_indices, num_points, x_class=None):
         self.scheduler_to_cuda()
 
         for t in tqdm(range(len(self.dpm_scheduler.timesteps))):
             random_ints = torch.ones(num_points.shape[0]).cuda().long() * self.dpm_scheduler.timesteps[t].cuda()
             t = random_ints[batch_indices]            
             
-            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(1)
+            noise_t = self.classfree_forward(x_t, x_cond, x_uncond, t, x_class).squeeze(1)
             input_noise = x_t.F
 
             x_t = self.dpm_scheduler.step(noise_t, t[0], input_noise)['prev_sample']
@@ -188,13 +192,13 @@ class DiffusionPoints(LightningModule):
             x_center = batch['center']
             x_size = batch['size']
             x_orientation = batch['orientation']
-            x_class = batch['class']
         else:
             x_center = torch.zeros_like(batch['center'])
             x_size = torch.zeros_like(batch['size'])
             x_orientation = torch.zeros_like(batch['orientation'])
-            x_class = torch.zeros_like(batch['class'])
-        
+
+        x_class = batch['class']
+
         if self.hparams['model']['embeddings'] == 'cyclical':
             x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
         else:
@@ -238,7 +242,7 @@ class DiffusionPoints(LightningModule):
 
             x_t = torch.randn(x_object.shape, device=self.device)
             x_t = self.points_to_tensor(x_t, batch['batch_indices'])
-            x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points']).F
+            x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points'], batch['class']).F
 
             curr_index = 0
             cd_mean_as_pct_of_box = []
