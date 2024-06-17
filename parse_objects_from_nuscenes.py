@@ -66,7 +66,7 @@ def parse_largest_x_from_dataset(output_dir, object_name, object_lidar_data, top
     reduced_train_val_objects = {'train':[], 'val':[]}
     train_objects = object_lidar_data['train']
     val_objects = object_lidar_data['val']
-    print("Sorting objcet lidar data")
+    print("Sorting object lidar data")
     train_sorted_by_num_points = sorted(train_objects, key=lambda x: x['num_lidar_points'], reverse=True)
     val_sorted_by_num_points = sorted(val_objects, key=lambda x: x['num_lidar_points'], reverse=True)
     print("Taking top x from object lidar data")
@@ -77,8 +77,7 @@ def parse_largest_x_from_dataset(output_dir, object_name, object_lidar_data, top
         json.dump(reduced_train_val_objects, fp)
 
 if __name__ == '__main__':
-    points_threshold = 50
-    object_name = 'cars_with_num_points'
-    object_tag = 'vehicle.car'
+    points_threshold = 10
+    object_name = 'pedestrian'
+    object_tag = 'human.pedestrian.adult'
     object_lidar_data, output_dir = parse_objects_from_nuscenes(points_threshold, object_name, object_tag)
-    parse_largest_x_from_dataset(output_dir, object_name, object_lidar_data, top_x=4235)

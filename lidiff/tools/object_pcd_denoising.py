@@ -15,6 +15,7 @@ from lidiff.utils.three_d_helpers import cartesian_to_cylindrical, cartesian_to_
 from lidiff.utils.metrics import ChamferDistance
 from diffusers import DPMSolverMultistepScheduler
 import sys
+import click
 
 def get_min_points_from_class(object_class):
     return {
@@ -81,11 +82,12 @@ def visualize_step_t(x_t, pcd):
     pcd.points = o3d.utility.Vector3dVector(points)
     return pcd
 
-def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_indices, generate_viz=False):
+def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, batch_indices, viz_path=None):
     model.scheduler_to_cuda()
+    generate_viz = viz_path != None
     if generate_viz:
         viz_pcd = o3d.geometry.PointCloud()
-        os.makedirs(f'lidiff/random_pcds/generated_pcd/step_visualizations', exist_ok=True)
+        os.makedirs(f'{viz_path}/step_visualizations', exist_ok=True)
 
     for t in tqdm(range(len(model.dpm_scheduler.timesteps))):
         t = model.dpm_scheduler.timesteps[t].cuda()[None]
@@ -102,13 +104,13 @@ def p_sample_loop(model: DiffusionPoints, x_init, x_t, x_cond, x_uncond, batch_i
         if generate_viz:
             viz = visualize_step_t(x_t.F.clone(), viz_pcd)
             print(f'Saving Visualization of Step {t}')
-            o3d.io.write_point_cloud(f'lidiff/random_pcds/generated_pcd/step_visualizations/full_diff_cylindrical_coord_step_{t[0]}.ply', viz)
+            o3d.io.write_point_cloud(f'{viz_path}/step_visualizations/object_gen_viz_step_{t[0]}.ply', viz)
 
         torch.cuda.empty_cache()
 
     return x_t
         
-def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh, angle, num_diff_samples):
+def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh, angle, num_diff_samples, viz_path=None):
     torch.cuda.empty_cache()
     torch.backends.cudnn.deterministic = True
 
@@ -141,7 +143,7 @@ def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh,
         torch.cuda.manual_seed(i)
         x_feats = torch.randn(x_init.shape, device=model.device)
         x_t = model.points_to_tensor(x_feats, batch_indices)
-        x_gen_eval = p_sample_loop(model, x_init, x_t, x_cond, x_uncond, batch_indices, generate_viz=False)
+        x_gen_eval = p_sample_loop(model, x_t, x_cond, x_uncond, batch_indices, viz_path=viz_path)
         x_gen_evals.append(x_gen_eval.F)    
         pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=x_gen_eval.F, object_pcd=x_init)
         local_chamfer.update(pcd_gt, pcd_pred)
@@ -163,7 +165,7 @@ def extract_object_info(object_info):
     center_cyl = cartesian_to_cylindrical(center[None, :])
     return pcd, center_cyl, size, extract_yaw_angle(orientation)
 
-def find_pcd_and_test_on_object(output_path, name, model, class_name):
+def find_pcd_and_test_on_object(output_path, name, model, class_name, do_viz):
     object_info = find_eligible_objects(object_class=class_name)[0]
     pcd, center_cyl, size, yaw = extract_object_info(object_info)
 
@@ -174,11 +176,12 @@ def find_pcd_and_test_on_object(output_path, name, model, class_name):
         size, 
         yaw,
         10,
+        viz_path=f'{output_path}/{name}' if do_viz else None
     )
     np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
     np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
 
-def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name):
+def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name, do_viz):
     object_infos = find_eligible_objects(num_to_find=num_to_find, object_class=class_name)
     for object_info in object_infos:
         print(f'Generating using car info {object_info["sample_token"]}')
@@ -191,6 +194,7 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     size, 
                     yaw,
                     1,
+                    viz_path=f'{output_path}/{name}' if do_viz else None
                 )
                 np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_{condition}_interp_{index}.txt', x_gen)
                 np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_orig.txt', x_orig)
@@ -225,12 +229,46 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     new_cyl[:,2] = dist
                     do_gen(condition+'_vertical_distance', index=index, center_cyl=new_cyl)
             
-
-def main(task, class_name):
-    output_path, name = 'lidiff/random_pcds/generated_pcd', 'moto_gen_1'
+@click.command()
+@click.option('--config',
+              '-c',
+              type=str,
+              help='path to the config file (.yaml)')
+@click.option('--weights',
+              '-w',
+              type=str,
+              help='path to pretrained weights (.ckpt).',
+              default=None)
+@click.option('--output_path',
+              '-o',
+              type=str,
+              help='path to save the generated point clouds',
+              default='lidiff/random_pcds/generated_pcd'
+)
+@click.option('--name',
+              '-n',
+              type=str,
+              help='folder in which generated point clouds will be saved.',
+              default=None
+              )
+@click.option('--task',
+              '-t',
+              type=str,
+              help='Task to run. options are recreate or interpolate',
+              default=None)
+@click.option('--class_name',
+              '-cls',
+              type=str,
+              help='Label of class to generate.',
+              default='vehicle.car'
+              )
+@click.option('--do_viz',
+              '-v',
+              type=bool,
+              help='Generate step visualizations (every step). True or False.',
+              default=False)
+def main(config, weights, output_path, name, task, class_name, do_viz):
     os.makedirs(f'{output_path}/{name}/', exist_ok=True)
-    config = 'lidiff/config/object_generation/config_moto_gen.yaml'
-    weights = 'lidiff/checkpoints/moto_gen_1_epoch=99.ckpt'
     cfg = yaml.safe_load(open(config))
     cfg['diff']['s_steps'] = 1000
     cfg['diff']['uncond_w'] = 6.
@@ -238,10 +276,9 @@ def main(task, class_name):
     model.eval()
 
     if task == 'recreate':
-        find_pcd_and_test_on_object(output_path, name, model, class_name)
+        find_pcd_and_test_on_object(output_path, name, model, class_name, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name)
-if __name__=='__main__':
-    task = sys.argv[1]
-    class_name = sys.argv[2]
-    main(task, class_name)
+        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name, do_viz=do_viz)
+
+if __name__ == "__main__":
+    main()

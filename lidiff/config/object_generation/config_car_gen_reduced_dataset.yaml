@@ -19,6 +19,7 @@ train:
     lr: 0.0001
     batch_size: 8
     decay_lr: 1.0e-4
+    class_conditional: False
 
 diff:
     beta_start: 3.5e-5
