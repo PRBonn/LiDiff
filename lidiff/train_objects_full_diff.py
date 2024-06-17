@@ -11,6 +11,7 @@ import yaml
 import MinkowskiEngine as ME
 
 import lidiff.datasets.datasets_objects as datasets_objects
+import lidiff.datasets.datasets_shapenet as datasets_shapenet
 import lidiff.models.models_objects_full_diff as models_objects
 
 def set_deterministic():
@@ -56,8 +57,11 @@ def main(config, weights, checkpoint, test):
 
         model = models_objects.DiffusionPoints.load_from_checkpoint(weights, hparams=cfg)
         print(model.hparams)
-
-    data = datasets_objects.dataloaders[cfg['data']['dataloader']](cfg)
+    dl = cfg['data']['dataloader']
+    if dl in datasets_objects.dataloaders:
+        data = datasets_objects.dataloaders[dl](cfg)
+    else:
+        data = datasets_shapenet.dataloaders[dl](cfg)
 
     #Add callbacks
     lr_monitor = LearningRateMonitor(logging_interval='step')
