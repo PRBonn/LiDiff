@@ -21,9 +21,9 @@ config_cars_reduced="$config_dir/config_car_gen_reduced_points.yaml"
 weights_cars_reduced="$weights_dir/car_gen_point_limited_1_epoch=99.ckpt"
 
 echo "Running recreation for cars subsampled points dataset using condition from train"
-python lidiff/tools/object_pcd_denoising.py -c $config_cars_reduced -w $weights_cars_reduced -n car_gen_subsampled_1 -t recreate -cls vehicle.car -s train -m 30
+python lidiff/tools/object_pcd_denoising.py -c $config_cars_reduced -w $weights_cars_reduced -n car_gen_subsampled_1_train -t recreate -cls vehicle.car -s train -m 30
 echo "Command completed"
 
 echo "Running recreation for cars subsampled points dataset using condition from val"
-python lidiff/tools/object_pcd_denoising.py -c $config_cars_reduced -w $weights_cars_reduced -n car_gen_subsampled_1 -t recreate -cls vehicle.car -s val -m 30
+python lidiff/tools/object_pcd_denoising.py -c $config_cars_reduced -w $weights_cars_reduced -n car_gen_subsampled_1_val -t recreate -cls vehicle.car -s val -m 30
 echo "Command completed"
