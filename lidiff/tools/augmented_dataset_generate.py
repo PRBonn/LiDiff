@@ -43,7 +43,7 @@ def p_sample_loop(model: models_objects.DiffusionPoints, x_t, x_cond, x_uncond, 
 
         torch.cuda.empty_cache()
 
-    return x_t
+    return x_t.F
 
 @click.command()
 ### Add your options here
@@ -80,6 +80,17 @@ def main(config, weights):
     model.cuda()
     model.eval()
     for batch_index, batch in tqdm(enumerate(loader)):
+        model.dpm_scheduler = DPMSolverMultistepScheduler(
+                num_train_timesteps=model.t_steps,
+                beta_start=model.hparams['diff']['beta_start'],
+                beta_end=model.hparams['diff']['beta_end'],
+                beta_schedule='linear',
+                algorithm_type='sde-dpmsolver++',
+                solver_order=2,
+        )
+        model.dpm_scheduler.set_timesteps(model.s_steps)
+        model.scheduler_to_cuda()
+
         x_object = batch['pcd_object']
 
         x_center = batch['center']
@@ -103,8 +114,10 @@ def main(config, weights):
         x_uncond = torch.zeros_like(x_cond).to(model.device)
         x_t = torch.randn(x_object.shape, device=model.device)
         x_t = model.points_to_tensor(x_t, batch_indices)
+        print("Generating flipped yaw angle")
         x_gen_flipped_yaw = p_sample_loop(model, x_t, x_cond, x_uncond, batch_indices)
 
+        print("Saving point clouds")
         curr_index = 0
         for pcd_index in range(batch['num_points'].shape[0]):
             max_index = int(curr_index + batch['num_points'][pcd_index].item())
@@ -112,9 +125,9 @@ def main(config, weights):
             generated_flipped_phi = x_gen_flipped_phi[curr_index:max_index]
             generated_flipped_yaw = x_gen_flipped_yaw[curr_index:max_index]
             
-            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_phi_flipped', generated_flipped_phi)
-            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_yaw_flipped', generated_flipped_yaw)
-            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_condition', cond)
+            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_phi_flipped', generated_flipped_phi.cpu().detach().numpy())
+            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_yaw_flipped', generated_flipped_yaw.cpu().detach().numpy())
+            np.savetxt(f'/home/ekirby/scania/ekirby/datasets/augmented_cars_from_nuscenes/train/car_{batch_index}_{pcd_index}_condition', cond.cpu().detach().numpy())
             
 if __name__ == "__main__":
     main()
