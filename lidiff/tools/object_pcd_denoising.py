@@ -292,7 +292,7 @@ def main(config, weights, output_path, name, task, class_name, split, min_points
     if task == 'recreate':
         find_pcd_and_test_on_object(output_path, name, model, class_name, split, min_points, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(output_path, name, conditions=['angle','center'], num_to_find=5, model=model, class_name=class_name, split=split, min_points=min_points, do_viz=do_viz)
+        find_pcd_and_interpolate_condition(output_path, name, conditions=['center'], num_to_find=1, model=model, class_name=class_name, split=split, min_points=min_points, do_viz=do_viz)
 
 if __name__ == "__main__":
     main()
