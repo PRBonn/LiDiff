@@ -28,8 +28,21 @@ class ShapeNetObjectsSet(Dataset):
             size[i] = np.max(object_points[i]) - np.min(object_points[i])
         center = np.zeros(3)
         orientation = np.zeros(1)
-        num_points = object_points.shape[0]
         ring_indexes = np.zeros_like(object_points)
         class_name = 'vehicle.motorcycle'
+
+        if self.points_per_object > 0:
+            pcd_object = o3d.geometry.PointCloud()
+            pcd_object.points = o3d.utility.Vector3dVector(object_points)
+
+            if object_points.shape[0] > self.points_per_object:
+                pcd_object = pcd_object.farthest_point_down_sample(self.points_per_object)
+            
+            object_points = torch.tensor(np.array(pcd_object.points))
+            concat_part = int(np.ceil(self.points_per_object / object_points.shape[0]) )
+            object_points = object_points.repeat(concat_part, 1)
+            object_points = object_points[torch.randperm(object_points.shape[0])][:self.points_per_object]
+        
+        num_points = object_points.shape[0]
 
         return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name]

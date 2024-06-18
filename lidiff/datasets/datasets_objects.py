@@ -88,7 +88,7 @@ class NuscenesObjectCollator:
             orientation = torch.Tensor([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]]).float()
 
         class_mapping = torch.tensor([data_map.class_mapping[class_name] for class_name in batch[6]]).reshape(-1, 1)
-        class_mapping = torch.nn.functional.one_hot(class_mapping, num_classes=3)
+        class_mapping = torch.nn.functional.one_hot(class_mapping, num_classes=32)
 
         return {'pcd_object': pcd_object, 
             'center': center,

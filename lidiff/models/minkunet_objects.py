@@ -100,7 +100,7 @@ class MinkUNetDiff(nn.Module):
             ME.MinkowskiBatchNorm(cs[0]),
             ME.MinkowskiReLU(inplace=True)
         )
-        self.class_conditioning = 3 if kwargs.get('class_conditioning', True) else 0
+        self.class_conditioning = 32 if kwargs.get('class_conditioning', True) else 0
         num_conditions = 8
         self.num_cyclic_conditions = 2
         self.embeddings_type = kwargs.get('embeddings_type','positional')

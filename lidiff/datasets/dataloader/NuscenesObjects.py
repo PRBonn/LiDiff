@@ -7,8 +7,10 @@ import json
 import numpy as np
 from nuscenes.utils.geometry_utils import points_in_box
 from nuscenes.utils.data_classes import Box, Quaternion
+from lidiff.utils import data_map
 from lidiff.utils.three_d_helpers import extract_yaw_angle, cartesian_to_spherical
 import open3d as o3d
+from nuscenes.utils.data_io import load_bin_file
 
 class NuscenesObjectsSet(Dataset):
     def __init__(self, data_dir, split, points_per_object=None, volume_expansion=1., recenter=True):
@@ -29,6 +31,7 @@ class NuscenesObjectsSet(Dataset):
         
         class_name = object_json['class']
         points = np.fromfile(object_json['lidar_data_filepath'], dtype=np.float32).reshape((-1, 5)) #(x, y, z, intensity, ring index)
+        labels = np.fromfile(object_json['lidarseg_label_filepath'], dtype=np.uint8).reshape((-1, 1))
         center = np.array(object_json['center'])
         size = np.array(object_json['size'])
         rotation_real = np.array(object_json['rotation_real'])
@@ -39,6 +42,7 @@ class NuscenesObjectsSet(Dataset):
         
         points_from_object = points_in_box(box, points=points[:,:3].T, wlh_factor=self.volume_expansion)
         object_points = torch.from_numpy(points[points_from_object])[:,:3]
+        object_points = object_points[(labels[points_from_object] == data_map.class_mapping[class_name]).flatten()]
 
         if self.points_per_object > 0:
             pcd_object = o3d.geometry.PointCloud()
