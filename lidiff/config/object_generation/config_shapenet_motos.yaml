@@ -16,7 +16,7 @@ train:
     num_workers: 4
     max_epoch: 100
     lr: 0.0001
-    batch_size: 8
+    batch_size: 4
     decay_lr: 1.0e-4
     class_conditional: False
 

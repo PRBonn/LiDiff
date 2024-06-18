@@ -1,82 +1,35 @@
-from operator import xor
 import os
+from pytorch_lightning import LightningDataModule
 import yaml
 from lidiff.models.models_objects_full_diff import DiffusionPoints
 import torch
 import numpy as np
-from nuscenes.utils.data_classes import LidarPointCloud
-from nuscenes.utils.geometry_utils import BoxVisibility, transform_matrix, points_in_box
-from nuscenes.utils.data_classes import Box, Quaternion
-from nuscenes.nuscenes import NuScenes
-import nuscenes.utils.splits as splits
 import open3d as o3d
 from tqdm import tqdm
-from lidiff.utils.three_d_helpers import cartesian_to_cylindrical, cartesian_to_spherical, extract_yaw_angle, build_two_point_clouds
+from lidiff.utils.three_d_helpers import build_two_point_clouds
 from lidiff.utils.metrics import ChamferDistance
+from lidiff.datasets import datasets_objects, datasets_shapenet
+from lidiff.utils.data_map import class_mapping
 from diffusers import DPMSolverMultistepScheduler
-import sys
 import click
 
-def get_min_points_from_class(object_class):
-    return {
-        'vehicle.car':300,
-        'vehicle.bicycle':100,
-        'vehicle.motorcycle':100,
-    }[object_class]
-
-def find_eligible_objects(num_to_find=1, object_class='vehicle.car', split='train', min_points=None):
-    dataroot = '/datasets_local/nuscenes'
-    nusc = NuScenes(version='v1.0-trainval', dataroot=dataroot, verbose=True)
-
-    train_split = set(splits.train)
-    val_split = set(splits.val)
-    split_to_skip = val_split if split == 'train' else train_split
+def find_eligible_objects(dataloader, num_to_find=1, object_class='vehicle.car', min_points=None):
     targets = []
-    found_target = False
-    min_points = min_points if min_points != None else get_min_points_from_class(object_class)
-    for sample in nusc.sample:
-        scene_token = sample['scene_token']
-        sample_data_lidar_token = sample['data']['LIDAR_TOP']
-        scene_name = nusc.get('scene', scene_token)['name']
-        if scene_name in split_to_skip:
+
+    for index, item in enumerate(dataloader):
+        num_lidar_points = item['num_points'][0]
+        class_index = torch.argmax(item['class'])
+        item['index'] = index
+        if class_mapping[object_class] != class_index:
             continue
 
-        lidar_data = nusc.get('sample_data', sample_data_lidar_token)
-        lidar_filepath = os.path.join(dataroot, lidar_data['filename'])
-        lidar_pointcloud = LidarPointCloud.from_file(lidar_filepath)
-        objects = nusc.get_sample_data(sample_data_lidar_token)[1]
-
-        for object in objects:
-            if object_class in object.name:
-                annotation = nusc.get('sample_annotation', object.token)
-                num_lidar_points = annotation['num_lidar_pts']
-                points = points_in_box(object, lidar_pointcloud.points[:3, :])
-                object_info = {
-                    'sample_token': object.token,
-                    'lidar_filepath': lidar_filepath,
-                    'center': object.center.tolist(),
-                    'wlh': object.wlh.tolist(),
-                    'rotation_real': object.orientation.real.tolist(),
-                    'rotation_imaginary': object.orientation.imaginary.tolist(),
-                    'points': points.tolist(),
-                    'num_lidar_points': num_lidar_points
-                }
-                
-                if num_lidar_points > min_points:
-                    targets.append(object_info)
-                    if len(targets) >= num_to_find:
-                        found_target = True
-                        break
-        if found_target:
+        if num_lidar_points > min_points:
+            targets.append(item)
+        
+        if len(targets) >= num_to_find:
             break
+
     return targets
-
-def load_pcd(pcd_file):
-    if pcd_file.endswith('.bin'):
-        return np.fromfile(pcd_file, dtype=np.float32).reshape((-1, 5))[:, :3]
-
-    else:
-        print(f"Point cloud format '.{pcd_file.split('.')[-1]}' not supported. (supported formats: .bin (kitti format), .ply)")
 
 def visualize_step_t(x_t, pcd):
     points = x_t.detach().cpu().numpy()
@@ -111,7 +64,7 @@ def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, batch_indices, 
 
     return x_t
         
-def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh, angle, num_diff_samples, viz_path=None):
+def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, x_orientation, num_diff_samples, viz_path=None):
     torch.cuda.empty_cache()
     torch.backends.cudnn.deterministic = True
 
@@ -125,11 +78,6 @@ def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh,
     )
     model.dpm_scheduler.set_timesteps(model.s_steps)
     model.scheduler_to_cuda()
-
-    x_size = torch.Tensor(wlh).float().unsqueeze(0)
-    x_orientation = torch.ones((1,1)) * angle
-    x_object = torch.from_numpy(car_points)
-    x_center = torch.from_numpy(center_cyl).float()
 
     x_init = x_object.clone().cuda()    
     batch_indices = torch.zeros(x_init.shape[0]).long().cuda()
@@ -157,35 +105,27 @@ def denoise_object_from_pcd(model: DiffusionPoints, car_points, center_cyl, wlh,
     return x_gen_eval.cpu().detach().numpy(), x_object.cpu().detach().numpy()
 
 def extract_object_info(object_info):
-    rotation_real = np.array(object_info['rotation_real'])
-    rotation_imaginary = np.array(object_info['rotation_imaginary'])
-    orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
-    size = np.array(object_info['wlh'])
-    center = np.array(object_info['center'])
-    pcd = load_pcd(object_info['lidar_filepath'])[object_info['points']] - center
-    center_cyl = cartesian_to_cylindrical(center[None, :])
-    return pcd, center_cyl, size, extract_yaw_angle(orientation)
+    x_object = object_info['pcd_object']
+    x_center = object_info['center']
+    x_size = object_info['size']
+    x_orientation = object_info['orientation']
 
-def find_pcd_and_test_on_object(output_path, name, model, class_name, split, min_points, do_viz):
-    object_info = find_eligible_objects(object_class=class_name, split=split, min_points=min_points)[0]
-    pcd, center_cyl, size, yaw = extract_object_info(object_info)
+    return x_object, x_center, x_size, x_orientation
 
-    x_gen, x_orig = denoise_object_from_pcd(
-        model,
-        pcd, 
-        center_cyl, 
-        size, 
-        yaw,
-        10,
-        viz_path=f'{output_path}/{name}' if do_viz else None
-    )
-    np.savetxt(f'{output_path}/{name}/generated.txt', x_gen)
-    np.savetxt(f'{output_path}/{name}/orig.txt', x_orig)
+def find_pcd_and_test_on_object(dir_path, model, do_viz, objects):
+    for _, object_info in enumerate(objects):
+        x_gen, x_orig = denoise_object_from_pcd(
+            model,
+            *extract_object_info(object_info),
+            10,
+            viz_path=f'{dir_path}' if do_viz else None
+        )
+        np.savetxt(f'{dir_path}/generated_{object_info["index"]}.txt', x_gen)
+        np.savetxt(f'{dir_path}/original_{object_info["index"]}.txt', x_orig)
 
-def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_find, model, class_name, split, min_points, do_viz):
-    object_infos = find_eligible_objects(num_to_find=num_to_find, object_class=class_name, split=split, min_points=min_points)
-    for object_info in object_infos:
-        print(f'Generating using car info {object_info["sample_token"]}')
+def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_viz):
+    for object_info in objects:
+        print(f'Generating using car info {object_info["index"]}')
         pcd, center_cyl, size, yaw = extract_object_info(object_info)
         def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw):
                 x_gen, x_orig = denoise_object_from_pcd(
@@ -194,11 +134,11 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     center_cyl,
                     size, 
                     yaw,
-                    1,
-                    viz_path=f'{output_path}/{name}' if do_viz else None
+                    num_diff_samples=1,
+                    viz_path=f'{dir_path}' if do_viz else None
                 )
-                np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_{condition}_interp_{index}.txt', x_gen)
-                np.savetxt(f'{output_path}/{name}/{object_info["sample_token"]}_orig.txt', x_orig)
+                np.savetxt(f'{dir_path}/object_{object_info["index"]}_{condition}_interp_{index}.txt', x_gen)
+                np.savetxt(f'{dir_path}/object_{object_info["index"]}_orig.txt', x_orig)
 
         for condition in conditions:
             if condition == 'angle':
@@ -209,7 +149,7 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
                     do_gen(condition, index=index, yaw=angle)
             if condition == 'center':
                 start = center_cyl[:, 0]
-                linspace_ring = np.linspace(start=start, stop=start*-1, num=5)
+                linspace_ring = np.linspace(start=start, stop=start*-1, num=3)
                 start = center_cyl[:, 1]
                 linspace_dist = np.linspace(start=start, stop=start*2, num=3)
                 start = center_cyl[:, 2]
@@ -234,24 +174,26 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
 @click.option('--config',
               '-c',
               type=str,
-              help='path to the config file (.yaml)')
+              help='path to the config file (.yaml)'
+            )
 @click.option('--weights',
               '-w',
               type=str,
               help='path to pretrained weights (.ckpt).',
-              default=None)
+              default=None
+            )
 @click.option('--output_path',
               '-o',
               type=str,
               help='path to save the generated point clouds',
               default='lidiff/random_pcds/generated_pcd'
-)
+            )
 @click.option('--name',
               '-n',
               type=str,
               help='folder in which generated point clouds will be saved.',
               default=None
-              )
+            )
 @click.option('--task',
               '-t',
               type=str,
@@ -262,7 +204,7 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
               type=str,
               help='Label of class to generate.',
               default='vehicle.car'
-              )
+            )
 @click.option('--split',
               '-s',
               type=str,
@@ -273,26 +215,42 @@ def find_pcd_and_interpolate_condition(output_path, name, conditions, num_to_fin
               '-m',
               type=int,
               help='Minimum number of points per cloud.',
-              default=None
-)
+              default=100
+            )
 @click.option('--do_viz',
               '-v',
               type=bool,
               help='Generate step visualizations (every step). True or False.',
               default=False
-              )
-def main(config, weights, output_path, name, task, class_name, split, min_points, do_viz):
-    os.makedirs(f'{output_path}/{name}/', exist_ok=True)
+            )
+@click.option('--examples_to_generate',
+              '-e',
+              type=int,
+              help='Number of examples to generate',
+              default=1
+            )
+def main(config, weights, output_path, name, task, class_name, split, min_points, do_viz, examples_to_generate):
+    dir_path = f'{output_path}/{name}'
+    os.makedirs(dir_path, exist_ok=True)
     cfg = yaml.safe_load(open(config))
     cfg['diff']['s_steps'] = 1000
     cfg['diff']['uncond_w'] = 6.
+    cfg['train']['batch_size'] = 1
     model = DiffusionPoints.load_from_checkpoint(weights, hparams=cfg).cuda()
     model.eval()
 
+    dataloader_maps = [datasets_shapenet.dataloaders, datasets_objects.dataloaders]
+    for map in dataloader_maps:
+        if cfg['data']['dataloader'] in map:
+           module: LightningDataModule = map[cfg['data']['dataloader']](cfg)
+           break
+
+    dataloader = module.train_dataloader() if split == 'train' else module.val_dataloader()
+    objects = find_eligible_objects(dataloader, num_to_find=examples_to_generate, object_class=class_name, min_points=min_points)
     if task == 'recreate':
-        find_pcd_and_test_on_object(output_path, name, model, class_name, split, min_points, do_viz=do_viz)
+        find_pcd_and_test_on_object(dir_path=dir_path, model=model, objects=objects, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(output_path, name, conditions=['center'], num_to_find=1, model=model, class_name=class_name, split=split, min_points=min_points, do_viz=do_viz)
+        find_pcd_and_interpolate_condition(dir_path=dir_path, conditions=['angle', 'center',], model=model, do_viz=do_viz, objects=objects)
 
 if __name__ == "__main__":
     main()
