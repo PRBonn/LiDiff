@@ -13,8 +13,8 @@ data:
 train:
     uncond_prob: 0.1
     uncond_w: 6.
-    n_gpus: 1
-    num_workers: 4
+    n_gpus: 2
+    num_workers: 8
     max_epoch: 100
     lr: 0.0001
     batch_size: 128
