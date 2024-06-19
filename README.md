@@ -11,7 +11,7 @@ can achieve a complete scene representation from a single LiDAR scan directly op
 
 ## Dependencies
 
-Installing python packages pre-requisites:
+Installing python (we have used python 3.8.18) packages pre-requisites:
 
 `sudo apt install build-essential python3-dev libopenblas-dev`
 
