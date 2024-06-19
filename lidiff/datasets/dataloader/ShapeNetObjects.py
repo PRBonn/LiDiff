@@ -23,13 +23,6 @@ class ShapeNetObjectsSet(Dataset):
     
     def __getitem__(self, index):
         object_points = np.load(self.files[index])
-        size = np.zeros(3)
-        for i in range(3):
-            size[i] = np.max(object_points[i]) - np.min(object_points[i])
-        center = np.zeros(3)
-        orientation = np.zeros(1)
-        ring_indexes = np.zeros_like(object_points)
-        class_name = 'vehicle.motorcycle'
 
         if self.points_per_object > 0:
             pcd_object = o3d.geometry.PointCloud()
@@ -44,5 +37,19 @@ class ShapeNetObjectsSet(Dataset):
             object_points = object_points[torch.randperm(object_points.shape[0])][:self.points_per_object]
         
         num_points = object_points.shape[0]
+        rotation_matrix_pitch = np.array([
+            [1, 0, 0],
+            [0, 0, -1],
+            [0, 1, 0]
+        ])
+        rotated_point_cloud = object_points.dot(rotation_matrix_pitch.T)
+        size = np.zeros(3)
+        for i in range(3):
+            size[i] = np.max(object_points[i]) - np.min(object_points[i])
+        center = np.zeros(3)
+        orientation = np.zeros(1)
+        ring_indexes = np.zeros_like(object_points)
+        class_name = 'vehicle.motorcycle'
+
 
         return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name]

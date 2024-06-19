@@ -1,9 +1,9 @@
 experiment:
-    id: all_objects_gen_unfilitered_1
+    id: all_objects_gen_filtered_1
 
 ##Data
 data:
-    data_dir: '/home/ekirby/scania/ekirby/datasets/all_objects_from_nuscenes/all_objects_from_nuscenes_train_val.json'
+    data_dir: '/home/ekirby/scania/ekirby/datasets/all_objects_filtered_from_nuscenes/all_objects_filtered_from_nuscenes_train_val.json'
     resolution: 0.05
     dataloader: 'nuscenes'
     coordinates: 'cylindrical'
