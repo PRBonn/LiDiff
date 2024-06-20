@@ -71,7 +71,7 @@ class NuscenesObjectCollator:
     def __call__(self, data):
         # "transpose" the  batch(pt, ptn) to batch(pt), batch(ptn)
         batch = list(zip(*data))
-        pcd_object = torch.vstack(batch[0])
+        pcd_object = torch.from_numpy(np.vstack(batch[0]))
         batch_indices = torch.zeros(pcd_object.shape[0])
 
         num_points_tensor = torch.Tensor(batch[4])
@@ -79,21 +79,28 @@ class NuscenesObjectCollator:
         batch_indices[cumulative_indices-1] = 1
         batch_indices = batch_indices.cumsum(0).long()
         batch_indices[-1] = batch_indices[-2]
-        
-        if self.coordinate_type == 'cartesian':
-            center = torch.from_numpy(np.stack(batch[1])).float()
-            orientation = torch.Tensor([[quaternion.angle] for quaternion in batch[3]]).float()
-        elif self.coordinate_type == 'cylindrical':
-            center = torch.from_numpy(cartesian_to_cylindrical(np.stack(batch[1]))).float()
-            orientation = torch.Tensor([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]]).float()
 
+        # center = torch.from_numpy(np.stack(batch[1])).float()
+        
+        # if self.coordinate_type == 'cartesian':
+        #     center = torch.from_numpy(np.stack(batch[1])).float()
+        #     orientation = torch.Tensor([[quaternion.angle] for quaternion in batch[3]]).float()
+        # elif self.coordinate_type == 'cylindrical':
+        #     center = cartesian_to_cylindrical(np.stack(batch[1]))
+        #     orientation = np.array([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]])
+        #     phi, orientation = center[:, 0].flatten(), orientation.flatten()
+        #     center[:,0] = phi
+        #     center = torch.from_numpy(center).float()
+        #     orientation = torch.from_numpy(orientation).float()[:, None]
+            
         class_mapping = torch.tensor([data_map.class_mapping[class_name] for class_name in batch[6]]).reshape(-1, 1)
-        class_mapping = torch.nn.functional.one_hot(class_mapping, num_classes=32)
+        num_classes = max(data_map.class_mapping.values()) + 1
+        class_mapping = torch.nn.functional.one_hot(class_mapping, num_classes=num_classes)
 
         return {'pcd_object': pcd_object, 
-            'center': center,
-            'size': torch.stack(batch[2]).float(),
-            'orientation': orientation,
+            'center':  torch.from_numpy(np.vstack(batch[1])).float(),
+            'size':  torch.from_numpy(np.vstack(batch[2])).float(),
+            'orientation': torch.zeros((num_points_tensor.shape[0], 1)),
             'batch_indices': batch_indices,
             'num_points': num_points_tensor,
             'ring_indexes': torch.vstack(batch[5]),

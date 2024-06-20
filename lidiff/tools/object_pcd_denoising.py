@@ -83,6 +83,7 @@ def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, 
     batch_indices = torch.zeros(x_init.shape[0]).long().cuda()
 
     x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1).cuda()
+    # x_cond = torch.cat((x_center, x_size),-1).cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
     x_class = x_class.cuda()
 

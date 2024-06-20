@@ -1,5 +1,5 @@
 experiment:
-    id: bike_gen_with_condition_data_augment_1
+    id: bike_gen_aligned_1_no_reg_weight
 
 ##Data
 data:
@@ -27,7 +27,7 @@ diff:
     beta_func: 'linear'
     t_steps: 1000
     s_steps: 50
-    reg_weight: 5.0
+    reg_weight: 0.0
     visualize: False
     num_val_samples: 10
 

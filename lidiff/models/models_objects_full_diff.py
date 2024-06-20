@@ -200,7 +200,8 @@ class DiffusionPoints(LightningModule):
         x_class = batch['class']
 
         if self.hparams['model']['embeddings'] == 'cyclical':
-            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            # x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            x_cond = torch.cat((x_center, x_size),-1)
         else:
             x_cond = torch.hstack((x_center, x_size, x_orientation))
 
@@ -235,7 +236,8 @@ class DiffusionPoints(LightningModule):
             x_orientation = batch['orientation']
 
             if self.hparams['model']['embeddings'] == 'cyclical':
-                x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+                # x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+                x_cond = torch.cat((x_center, x_size),-1)
             else:
                 x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)

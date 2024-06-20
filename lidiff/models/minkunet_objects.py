@@ -8,6 +8,8 @@ import MinkowskiEngine as ME
 import numpy as np
 from pykeops.torch import LazyTensor
 
+from lidiff.utils import data_map
+
 __all__ = ['MinkUNetDiff']
 
 
@@ -100,9 +102,9 @@ class MinkUNetDiff(nn.Module):
             ME.MinkowskiBatchNorm(cs[0]),
             ME.MinkowskiReLU(inplace=True)
         )
-        self.class_conditioning = 32 if kwargs.get('class_conditioning', True) else 0
-        num_conditions = 8
-        self.num_cyclic_conditions = 2
+        self.class_conditioning = max(data_map.class_mapping.values()) + 1 if kwargs.get('class_conditioning', True) else 0
+        num_conditions = 7
+        self.num_cyclic_conditions = 1
         self.embeddings_type = kwargs.get('embeddings_type','positional')
 
         # Stage1 temp embed proj and conv
@@ -480,7 +482,7 @@ class MinkUNetDiff(nn.Module):
         batch_temp = torch.unique(x0.C[:,0], return_counts=True)[1]
         p0 = torch.repeat_interleave(p0, batch_temp, dim=0).flatten(-2, -1)
         t0 = t0[x0.C[:,0].long()]
-        w0 = self.latemp_stage1(torch.cat((p0,t0),-1)) # append class information here
+        w0 = self.latemp_stage1(torch.cat((p0,t0),-1))
 
         x1 = self.stage1(x0*w0)
         p1 = self.latent_stage2(cond_emb) 

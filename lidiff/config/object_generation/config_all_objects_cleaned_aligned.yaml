@@ -1,9 +1,9 @@
 experiment:
-    id: bike_gen_with_condition_data_augment_1
+    id: all_objects_cleaned_aligned_1
 
 ##Data
 data:
-    data_dir: '/home/ekirby/scania/ekirby/datasets/bikes_from_nuscenes/bikes_from_nuscenes_train_val.json'
+    data_dir: '/home/ekirby/scania/ekirby/datasets/all_objects_nuscenes_cleaned/all_objects_nuscenes_cleaned_train_val.json'
     resolution: 0.05
     dataloader: 'nuscenes'
     coordinates: 'cylindrical'
@@ -13,13 +13,13 @@ data:
 train:
     uncond_prob: 0.1
     uncond_w: 6.
-    n_gpus: 1
-    num_workers: 4
+    n_gpus: 2
+    num_workers: 8
     max_epoch: 500
     lr: 0.0001
-    batch_size: 512
+    batch_size: 128
     decay_lr: 1.0e-4
-    class_conditional: False
+    class_conditional: True
 
 diff:
     beta_start: 3.5e-5
