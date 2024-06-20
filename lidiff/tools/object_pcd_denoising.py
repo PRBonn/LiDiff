@@ -36,7 +36,7 @@ def visualize_step_t(x_t, pcd):
     pcd.points = o3d.utility.Vector3dVector(points)
     return pcd
 
-def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, batch_indices, viz_path=None):
+def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, x_class, batch_indices, viz_path=None):
     model.scheduler_to_cuda()
     generate_viz = viz_path != None
     if generate_viz:
@@ -47,7 +47,7 @@ def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, batch_indices, 
         t = model.dpm_scheduler.timesteps[t].cuda()[None]
 
         with torch.no_grad():
-            noise_t = model.classfree_forward(x_t, x_cond, x_uncond, t).squeeze(0)
+            noise_t = model.classfree_forward(x_t, x_cond, x_uncond, t, x_class).squeeze(0)
             torch.cuda.empty_cache()
         input_noise = x_t.F
 
@@ -64,7 +64,7 @@ def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, batch_indices, 
 
     return x_t
         
-def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, x_orientation, num_diff_samples, viz_path=None):
+def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, x_orientation, x_class, num_diff_samples, viz_path=None):
     torch.cuda.empty_cache()
     torch.backends.cudnn.deterministic = True
 
@@ -84,6 +84,7 @@ def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, 
 
     x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1).cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
+    x_class = x_class.cuda()
 
     local_chamfer = ChamferDistance()
     x_gen_evals = []
@@ -92,7 +93,7 @@ def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, 
         torch.cuda.manual_seed(i)
         x_feats = torch.randn(x_init.shape, device=model.device)
         x_t = model.points_to_tensor(x_feats, batch_indices)
-        x_gen_eval = p_sample_loop(model, x_t, x_cond, x_uncond, batch_indices, viz_path=viz_path)
+        x_gen_eval = p_sample_loop(model, x_t, x_cond, x_uncond, x_class, batch_indices, viz_path=viz_path)
         x_gen_evals.append(x_gen_eval.F)    
         pcd_pred, pcd_gt = build_two_point_clouds(genrtd_pcd=x_gen_eval.F, object_pcd=x_init)
         local_chamfer.update(pcd_gt, pcd_pred)
@@ -109,8 +110,9 @@ def extract_object_info(object_info):
     x_center = object_info['center']
     x_size = object_info['size']
     x_orientation = object_info['orientation']
+    x_class = object_info['class']
 
-    return x_object, x_center, x_size, x_orientation
+    return x_object, x_center, x_size, x_orientation, x_class
 
 def find_pcd_and_test_on_object(dir_path, model, do_viz, objects):
     for _, object_info in enumerate(objects):
@@ -126,14 +128,15 @@ def find_pcd_and_test_on_object(dir_path, model, do_viz, objects):
 def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_viz):
     for object_info in objects:
         print(f'Generating using car info {object_info["index"]}')
-        pcd, center_cyl, size, yaw = extract_object_info(object_info)
+        pcd, center_cyl, size, yaw, x_class = extract_object_info(object_info)
         def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw):
                 x_gen, x_orig = denoise_object_from_pcd(
-                    model,
-                    pcd,
-                    center_cyl,
-                    size, 
-                    yaw,
+                    model=model,
+                    x_object=pcd,
+                    x_center=center_cyl,
+                    x_size=size, 
+                    x_orientation=yaw,
+                    x_class=x_class,
                     num_diff_samples=1,
                     viz_path=f'{dir_path}' if do_viz else None
                 )
@@ -146,7 +149,7 @@ def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_
                 angles = np.linspace(start=orig, stop=orig*-1, num=5)
                 print(f'Interpolating Yaw')
                 for index, angle in enumerate(angles):
-                    do_gen(condition, index=index, yaw=angle)
+                    do_gen(condition, index=index, yaw=torch.from_numpy(angle))
             if condition == 'center':
                 start = center_cyl[:, 0]
                 linspace_ring = np.linspace(start=start, stop=start*-1, num=3)
@@ -156,18 +159,18 @@ def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_
                 linspace_vertical_dist = np.linspace(start=start-1, stop=start+1, num=5)
                 print(f'Interpolating Cylindrical Angle')
                 for index, ring in enumerate(linspace_ring):
-                    new_cyl = center_cyl.copy()
-                    new_cyl[:,0] = ring
+                    new_cyl = center_cyl.clone()
+                    new_cyl[:,0] = ring.item()
                     do_gen(condition+'_angle', index=index, center_cyl=new_cyl)
                 print(f'Interpolating Cylindrical Distance')
                 for index, dist in enumerate(linspace_dist):
-                    new_cyl = center_cyl.copy()
-                    new_cyl[:,1] = dist
+                    new_cyl = center_cyl.clone()
+                    new_cyl[:,1] = dist.item()
                     do_gen(condition+'_distance', index=index, center_cyl=new_cyl)
                 print(f'Interpolating Vertical Distance')
                 for index, dist in enumerate(linspace_vertical_dist):
-                    new_cyl = center_cyl.copy()
-                    new_cyl[:,2] = dist
+                    new_cyl = center_cyl.clone()
+                    new_cyl[:,2] = dist.item()
                     do_gen(condition+'_vertical_distance', index=index, center_cyl=new_cyl)
             
 @click.command()
@@ -250,7 +253,7 @@ def main(config, weights, output_path, name, task, class_name, split, min_points
     if task == 'recreate':
         find_pcd_and_test_on_object(dir_path=dir_path, model=model, objects=objects, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(dir_path=dir_path, conditions=['angle', 'center',], model=model, do_viz=do_viz, objects=objects)
+        find_pcd_and_interpolate_condition(dir_path=dir_path, conditions=['angle','center',], model=model, do_viz=do_viz, objects=objects)
 
 if __name__ == "__main__":
     main()
