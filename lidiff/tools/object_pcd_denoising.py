@@ -129,7 +129,7 @@ def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_
     for object_info in objects:
         print(f'Generating using car info {object_info["index"]}')
         pcd, center_cyl, size, yaw, x_class = extract_object_info(object_info)
-        def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw):
+        def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw, pcd=pcd):
                 x_gen, x_orig = denoise_object_from_pcd(
                     model=model,
                     x_object=pcd,
@@ -144,34 +144,33 @@ def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_
                 np.savetxt(f'{dir_path}/object_{object_info["index"]}_orig.txt', x_orig)
 
         for condition in conditions:
-            if condition == 'angle':
+            if condition == 'yaw':
                 orig = yaw
                 angles = np.linspace(start=orig, stop=orig*-1, num=5)
                 print(f'Interpolating Yaw')
                 for index, angle in enumerate(angles):
                     do_gen(condition, index=index, yaw=torch.from_numpy(angle))
-            if condition == 'center':
-                start = center_cyl[:, 0]
-                linspace_ring = np.linspace(start=start, stop=start*-1, num=3)
-                start = center_cyl[:, 1]
-                linspace_dist = np.linspace(start=start, stop=start*2, num=3)
-                start = center_cyl[:, 2]
-                linspace_vertical_dist = np.linspace(start=start-1, stop=start+1, num=5)
+            if condition == 'cylinder_angle':
                 print(f'Interpolating Cylindrical Angle')
+                start = center_cyl[:, 0]
+                linspace_ring = np.linspace(start=start, stop=start*-1, num=5)
                 for index, ring in enumerate(linspace_ring):
                     new_cyl = center_cyl.clone()
                     new_cyl[:,0] = ring.item()
-                    do_gen(condition+'_angle', index=index, center_cyl=new_cyl)
+                    do_gen(condition, index=index, center_cyl=new_cyl)
+            if condition == 'cylinder_distance':
                 print(f'Interpolating Cylindrical Distance')
+                start = center_cyl[:, 1]
+                linspace_dist = np.linspace(start=start, stop=start*4, num=4)
                 for index, dist in enumerate(linspace_dist):
                     new_cyl = center_cyl.clone()
                     new_cyl[:,1] = dist.item()
-                    do_gen(condition+'_distance', index=index, center_cyl=new_cyl)
-                print(f'Interpolating Vertical Distance')
-                for index, dist in enumerate(linspace_vertical_dist):
-                    new_cyl = center_cyl.clone()
-                    new_cyl[:,2] = dist.item()
-                    do_gen(condition+'_vertical_distance', index=index, center_cyl=new_cyl)
+                    orig_total_points = pcd.shape[0]
+                    subsampled_total_points = orig_total_points // (index + 2)
+                    random_order = torch.randperm(orig_total_points)
+                    new_pcd = pcd.clone()[random_order]
+                    new_pcd = new_pcd[:subsampled_total_points]
+                    do_gen(condition, index=index, center_cyl=new_cyl, pcd=new_pcd)
             
 @click.command()
 @click.option('--config',
@@ -253,7 +252,13 @@ def main(config, weights, output_path, name, task, class_name, split, min_points
     if task == 'recreate':
         find_pcd_and_test_on_object(dir_path=dir_path, model=model, objects=objects, do_viz=do_viz)
     if task == 'interpolate':
-        find_pcd_and_interpolate_condition(dir_path=dir_path, conditions=['angle','center',], model=model, do_viz=do_viz, objects=objects)
+        find_pcd_and_interpolate_condition(
+            dir_path=dir_path, 
+            conditions=['yaw','cylinder_angle','cylinder_distance'], 
+            model=model, 
+            do_viz=do_viz, 
+            objects=objects
+        )
 
 if __name__ == "__main__":
     main()
