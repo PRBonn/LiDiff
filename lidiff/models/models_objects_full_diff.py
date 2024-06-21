@@ -79,8 +79,9 @@ class DiffusionPoints(LightningModule):
         self.model = minknet.MinkUNetDiff(
             in_channels=3, 
             out_channels=self.hparams['model']['out_dim'], 
-            embeddings_type=self.hparams['model']['embeddings'],
-            class_conditioning=self.hparams['train']['class_conditional']
+            class_conditioning=self.hparams['train']['class_conditional'],
+            num_conditions=self.hparams['model']['num_conditions'],
+            cyclic_conditions=self.hparams['model']['cyclic_conditions']
         )
 
         self.chamfer_distance = ChamferDistance()
@@ -199,9 +200,11 @@ class DiffusionPoints(LightningModule):
 
         x_class = batch['class']
 
-        if self.hparams['model']['embeddings'] == 'cyclical':
-            # x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
-            x_cond = torch.cat((x_center, x_size),-1)
+        if self.hparams['model']['cyclic_conditions'] > 0:
+            if self.hparams['model']['relative_angles'] == True:
+                x_cond = torch.cat((x_center, x_size),-1)
+            else:
+                x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
         else:
             x_cond = torch.hstack((x_center, x_size, x_orientation))
 
@@ -235,9 +238,11 @@ class DiffusionPoints(LightningModule):
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            if self.hparams['model']['embeddings'] == 'cyclical':
-                # x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
-                x_cond = torch.cat((x_center, x_size),-1)
+            if self.hparams['model']['cyclic_conditions'] > 0:
+                if self.hparams['model']['relative_angles'] == True:
+                    x_cond = torch.cat((x_center, x_size),-1)
+                else:
+                    x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
             else:
                 x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
@@ -268,9 +273,9 @@ class DiffusionPoints(LightningModule):
         cd_mean_as_pct_of_box = np.mean(cd_mean_as_pct_of_box)
         print(f'CD Mean: {cd_mean}\tCD Std: {cd_std}\tAs % of Box: {cd_mean_as_pct_of_box}')
 
-        self.log('test/cd_mean', cd_mean, on_step=True)
-        self.log('test/cd_std', cd_std, on_step=True)
-        self.log('test/cd_mean_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
+        self.log('val/cd_mean', cd_mean, on_step=True)
+        self.log('val/cd_std', cd_std, on_step=True)
+        self.log('val/cd_mean_as_pct_of_box', cd_mean_as_pct_of_box, on_step=True)
         torch.cuda.empty_cache()
 
         return {'val/cd_mean': cd_mean, 'val/cd_std': cd_std, 'val/cd_as_pct_of_box':cd_mean_as_pct_of_box}
@@ -313,8 +318,11 @@ class DiffusionPoints(LightningModule):
             x_size = batch['size']
             x_orientation = batch['orientation']
 
-            if self.hparams['model']['embeddings'] == 'cyclical':
-                x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+            if self.hparams['model']['cyclic_conditions'] > 0:
+                if self.hparams['model']['relative_angles'] == True:
+                    x_cond = torch.cat((x_center, x_size),-1)
+                else:
+                    x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
             else:
                 x_cond = torch.hstack((x_center, x_size, x_orientation))
             x_uncond = torch.zeros_like(x_cond)
@@ -327,7 +335,7 @@ class DiffusionPoints(LightningModule):
                 torch.cuda.manual_seed(i)
                 noise = torch.randn(x_object.shape, device=self.device)
                 x_t = self.points_to_tensor(noise, batch['batch_indices'])
-                x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points'])
+                x_gen_eval = self.p_sample_loop(x_t, x_cond, x_uncond, batch['batch_indices'], batch['num_points'],  batch['class'])
                 x_gen_evals.append(x_gen_eval.F)
 
             curr_index = 0

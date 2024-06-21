@@ -103,9 +103,8 @@ class MinkUNetDiff(nn.Module):
             ME.MinkowskiReLU(inplace=True)
         )
         self.class_conditioning = max(data_map.class_mapping.values()) + 1 if kwargs.get('class_conditioning', True) else 0
-        num_conditions = 7
-        self.num_cyclic_conditions = 1
-        self.embeddings_type = kwargs.get('embeddings_type','positional')
+        self.num_conditions = kwargs.get('num_conditions', 0)
+        self.num_cyclic_conditions = kwargs.get('cyclic_conditions', 0)
 
         # Stage1 temp embed proj and conv
         self.latent_stage1 = nn.Sequential(
@@ -115,7 +114,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage1 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[0]),
         )
@@ -140,7 +139,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage2 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[1]),
         )
@@ -165,7 +164,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage3 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[2]),
         )
@@ -190,7 +189,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_stage4 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[3]),
         )
@@ -215,7 +214,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up1 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[4]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[4]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[4], cs[4]),
         )
@@ -243,7 +242,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up2 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[5]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[5]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[5], cs[5]),
         )
@@ -271,7 +270,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up3 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[6]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[6]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[6], cs[6]),
         )
@@ -299,7 +298,7 @@ class MinkUNetDiff(nn.Module):
         )
 
         self.latemp_up4 = nn.Sequential(
-            nn.Linear((cs[4]*num_conditions)+self.class_conditioning, cs[7]),
+            nn.Linear((cs[4]*self.num_conditions)+self.class_conditioning, cs[7]),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Linear(cs[7], cs[7]),
         )
@@ -373,7 +372,7 @@ class MinkUNetDiff(nn.Module):
 
     def forward_with_class(self, x, x_sparse, t, y, x_class):
         temp_emb = self.get_timestep_embedding(t)
-        if self.embeddings_type == 'cyclical':
+        if self.num_cyclic_conditions > 0:
             cond_emb = torch.cat(
                 (
                     self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 

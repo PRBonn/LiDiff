@@ -32,7 +32,9 @@ class NuscenesObjectsDataModule(LightningDataModule):
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
                 split='train', 
-                points_per_object=self.cfg['data']['points_per_object']
+                points_per_object=self.cfg['data']['points_per_object'],
+                align_objects=self.cfg['data']['align_objects'],
+                relative_angles=self.cfg['model']['relative_angles']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'], shuffle=True,
                             num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
@@ -44,7 +46,9 @@ class NuscenesObjectsDataModule(LightningDataModule):
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
                 split='val',
-                points_per_object=self.cfg['data']['points_per_object']
+                points_per_object=self.cfg['data']['points_per_object'],
+                align_objects=self.cfg['data']['align_objects'],
+                relative_angles=self.cfg['model']['relative_angles']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'],
                             num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
@@ -56,7 +60,9 @@ class NuscenesObjectsDataModule(LightningDataModule):
         data_set = NuscenesObjectsSet(
                 data_dir=self.cfg['data']['data_dir'], 
                 split='val', 
-                points_per_object=self.cfg['data']['points_per_object']
+                points_per_object=self.cfg['data']['points_per_object'],
+                align_objects=self.cfg['data']['align_objects'],
+                relative_angles=self.cfg['model']['relative_angles']
             )
         loader = DataLoader(data_set, batch_size=self.cfg['train']['batch_size'],
                              num_workers=self.cfg['train']['num_workers'], collate_fn=collate)
@@ -79,19 +85,6 @@ class NuscenesObjectCollator:
         batch_indices[cumulative_indices-1] = 1
         batch_indices = batch_indices.cumsum(0).long()
         batch_indices[-1] = batch_indices[-2]
-
-        # center = torch.from_numpy(np.stack(batch[1])).float()
-        
-        # if self.coordinate_type == 'cartesian':
-        #     center = torch.from_numpy(np.stack(batch[1])).float()
-        #     orientation = torch.Tensor([[quaternion.angle] for quaternion in batch[3]]).float()
-        # elif self.coordinate_type == 'cylindrical':
-        #     center = cartesian_to_cylindrical(np.stack(batch[1]))
-        #     orientation = np.array([[quaternion.yaw_pitch_roll[0]] for quaternion in batch[3]])
-        #     phi, orientation = center[:, 0].flatten(), orientation.flatten()
-        #     center[:,0] = phi
-        #     center = torch.from_numpy(center).float()
-        #     orientation = torch.from_numpy(orientation).float()[:, None]
             
         class_mapping = torch.tensor([data_map.class_mapping[class_name] for class_name in batch[6]]).reshape(-1, 1)
         num_classes = max(data_map.class_mapping.values()) + 1

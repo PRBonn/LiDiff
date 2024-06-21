@@ -14,7 +14,7 @@ from nuscenes.utils.data_io import load_bin_file
 from lidiff.utils.three_d_helpers import cartesian_to_cylindrical
 
 class NuscenesObjectsSet(Dataset):
-    def __init__(self, data_dir, split, points_per_object=None, volume_expansion=1., recenter=True):
+    def __init__(self, data_dir, split, points_per_object=None, volume_expansion=1., recenter=True, align_objects=False, relative_angles=False):
         super().__init__()
         with open(data_dir, 'r') as f:
             self.data_index = json.load(f)[split]
@@ -23,6 +23,8 @@ class NuscenesObjectsSet(Dataset):
         self.points_per_object = points_per_object
         self.volume_expansion = volume_expansion
         self.do_recenter = recenter
+        self.align_objects = align_objects
+        self.relative_angles = relative_angles
 
     def __len__(self):
         return self.nr_data
@@ -62,15 +64,18 @@ class NuscenesObjectsSet(Dataset):
         
         center = cartesian_to_cylindrical(center[None,:])[0]
         yaw = orientation.yaw_pitch_roll[0]
+        
+        if self.align_objects:
+            cos_yaw = np.cos(-yaw)
+            sin_yaw = np.sin(-yaw)
+            rotation_matrix = np.array([
+                [cos_yaw, -sin_yaw, 0],
+                [sin_yaw, cos_yaw, 0],
+                [0, 0, 1]
+            ])
+            object_points = np.dot(object_points, rotation_matrix.T)
 
-        cos_yaw = np.cos(-yaw)
-        sin_yaw = np.sin(-yaw)
-        rotation_matrix = np.array([
-            [cos_yaw, -sin_yaw, 0],
-            [sin_yaw, cos_yaw, 0],
-            [0, 0, 1]
-        ])
-        object_points = np.dot(object_points, rotation_matrix.T)
-        center[0] -= yaw
-
+        if self.relative_angles:
+            center[0] -= yaw
+        
         return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name]
