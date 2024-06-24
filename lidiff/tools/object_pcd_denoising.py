@@ -36,6 +36,16 @@ def visualize_step_t(x_t, pcd):
     pcd.points = o3d.utility.Vector3dVector(points)
     return pcd
 
+def calculate_bounds(wlh):
+    half_wlh = wlh / 2
+    min_bounds = -half_wlh
+    max_bounds = half_wlh
+    return min_bounds, max_bounds
+
+def clip_points(points, min_bounds, max_bounds):
+    clipped_points = torch.max(torch.min(points, max_bounds.unsqueeze(1)), min_bounds.unsqueeze(1)).squeeze(0)
+    return clipped_points
+
 def p_sample_loop(model: DiffusionPoints, x_t, x_cond, x_uncond, x_class, batch_indices, viz_path=None):
     model.scheduler_to_cuda()
     generate_viz = viz_path != None
@@ -82,8 +92,15 @@ def denoise_object_from_pcd(model: DiffusionPoints, x_object, x_center, x_size, 
     x_init = x_object.clone().cuda()    
     batch_indices = torch.zeros(x_init.shape[0]).long().cuda()
 
-    x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1).cuda()
-    # x_cond = torch.cat((x_center, x_size),-1).cuda()
+    if model.hparams['model']['cyclic_conditions'] > 0:
+        if model.hparams['model']['relative_angles'] == True:
+            x_cond = torch.cat((x_center, x_size),-1)
+        else:
+            x_cond = torch.cat((torch.hstack((x_center[:,0][:, None], x_orientation)), torch.hstack((x_center[:,1:], x_size))),-1)
+    else:
+        x_cond = torch.hstack((x_center, x_size, x_orientation))
+
+    x_cond = x_cond.cuda()
     x_uncond = torch.zeros_like(x_cond).cuda()
     x_class = x_class.cuda()
 

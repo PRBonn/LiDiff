@@ -355,6 +355,17 @@ class MinkUNetDiff(nn.Module):
             emb = nn.functional.pad(emb, (0, 1), "constant", 0)
         return emb
 
+    def get_point_positional_embedding(self, points, embed_dim):
+        third_dim = embed_dim // 3
+        half_third_dim = third_dim // 2
+        emb = np.ones(points.shape[0]) * np.log(10000) / (half_third_dim - 1)
+        emb = torch.from_numpy(np.exp(np.arange(0, half_third_dim) * -emb[:,None])).float().to(torch.device('cuda'))
+        emb = (points[:,:, None] * emb[:, None, :]).reshape(-1, half_third_dim * 3)
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+        if emb.shape[-1] < embed_dim:  # zero pad
+            emb = nn.functional.pad(emb, (1, embed_dim - emb.shape[-1] - 1), "constant", 0)
+        return emb
+
     def get_cyclic_embedding(self, condition):
         batch_size, _ = condition.shape
         half_dim = self.embed_dim // 2
@@ -379,7 +390,8 @@ class MinkUNetDiff(nn.Module):
                     self.get_positional_embedding(y[:,self.num_cyclic_conditions:])
                 ), 1)
         else:
-            cond_emb = self.get_positional_embedding(y[:,:-1])
+            cond_emb = self.get_positional_embedding(y)
+
         x0 = self.stem(x_sparse)
         p0 = self.latent_stage1(cond_emb) 
         t0 = self.stage1_temp(temp_emb)
@@ -466,7 +478,7 @@ class MinkUNetDiff(nn.Module):
 
     def forward(self, x, x_sparse, t, y):
         temp_emb = self.get_timestep_embedding(t)
-        if self.embeddings_type == 'cyclical':
+        if self.num_cyclic_conditions > 0:
             cond_emb = torch.cat(
                 (
                     self.get_cyclic_embedding(y[:,:self.num_cyclic_conditions]), 

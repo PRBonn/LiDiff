@@ -1,5 +1,5 @@
 experiment:
-    id: all_objects_gen_filtered_1_eval_TEST
+    id: all_objects_gen_filtered_1_eval
 
 ##Data
 data:
@@ -37,4 +37,4 @@ model:
     out_dim: 96
     num_conditions: 8
     cyclic_conditions: 2
-    relative_angles: True
+    relative_angles: False

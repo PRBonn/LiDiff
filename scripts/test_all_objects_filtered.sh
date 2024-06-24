@@ -6,7 +6,7 @@ cd /home/ekirby/workspace/LiDiff
 config_dir="lidiff/config/object_generation"
 weights_dir="lidiff/checkpoints"
 
-config="$config_dir/config_combined_gen_filtered.yaml"
+config="$config_dir/config_filtered_gen_test.yaml"
 weights="$weights_dir/all_objects_gen_filtered_1_epoch=99.ckpt"
 
 echo "Recreation cars"

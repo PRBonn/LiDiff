@@ -1,5 +1,5 @@
 experiment:
-    id: bike_gen_aligned_1_no_reg_weight
+    id: bike_gen_aligned_1_point_pos_embeddings_2
 
 ##Data
 data:
@@ -8,6 +8,7 @@ data:
     dataloader: 'nuscenes'
     coordinates: 'cylindrical'
     points_per_object: -1
+    align_objects: True
 
 ##Training
 train:
@@ -15,7 +16,7 @@ train:
     uncond_w: 6.
     n_gpus: 1
     num_workers: 4
-    max_epoch: 500
+    max_epoch: 100
     lr: 0.0001
     batch_size: 512
     decay_lr: 1.0e-4
@@ -27,7 +28,7 @@ diff:
     beta_func: 'linear'
     t_steps: 1000
     s_steps: 50
-    reg_weight: 0.0
+    reg_weight: 5.0
     visualize: False
     num_val_samples: 10
 
@@ -35,3 +36,6 @@ diff:
 model:
     out_dim: 96
     embeddings: 'cyclical'
+    num_conditions: 7
+    cyclic_conditions: 1
+    relative_angles: True
