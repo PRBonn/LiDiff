@@ -93,7 +93,7 @@ def main(path, voxel_size, cpu):
 
 
         print(f'saving map for sequence {seq}')
-        np.save(os.path.join(path, seq, 'clean_map.npy'), map_points.cpu().numpy())
+        np.save(os.path.join(path, seq, 'map_clean.npy'), map_points.cpu().numpy())
 
 
 if __name__ == '__main__':
