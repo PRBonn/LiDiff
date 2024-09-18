@@ -141,12 +141,12 @@ def find_pcd_and_test_on_object(dir_path, model, do_viz, objects):
             viz_path=f'{dir_path}' if do_viz else None
         )
         np.savetxt(f'{dir_path}/generated_{object_info["index"]}.txt', x_gen)
-        np.savetxt(f'{dir_path}/original_{object_info["index"]}.txt', x_orig)
 
 def find_pcd_and_interpolate_condition(dir_path, conditions, model, objects, do_viz):
     for object_info in objects:
         print(f'Generating using car info {object_info["index"]}')
         pcd, center_cyl, size, yaw, x_class = extract_object_info(object_info)
+        np.savetxt(f'{dir_path}/original_{object_info["index"]}.txt', pcd)
         def do_gen(condition, index, center_cyl=center_cyl, size=size, yaw=yaw, pcd=pcd):
                 x_gen, x_orig = denoise_object_from_pcd(
                     model=model,

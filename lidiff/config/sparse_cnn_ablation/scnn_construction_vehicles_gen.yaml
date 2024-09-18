@@ -1,0 +1,41 @@
+experiment:
+    id: scnn_construction_vehicles_gen_999
+
+##Data
+data:
+    data_dir: '/home/ekirby/scania/ekirby/datasets/construction_vehicles_from_nuscenes/construction_vehicles_token_to_data_with_indices.json'
+    resolution: 0.05
+    dataloader: 'nuscenes'
+    coordinates: 'cylindrical'
+    points_per_object: -1
+    align_objects: True
+
+##Training
+train:
+    uncond_prob: 0.1
+    uncond_w: 1.
+    n_gpus: 1
+    num_workers: 1
+    max_epoch: 500
+    lr: 0.0001
+    batch_size: 32
+    decay_lr: 1.0e-4
+    class_conditional: True
+
+diff:
+    beta_start: 3.5e-5
+    beta_end: 0.007
+    beta_func: 'linear'
+    t_steps: 1000
+    s_steps: 999
+    reg_weight: 5.0
+    visualize: False
+    num_val_samples: 10
+
+##Network
+model:
+    out_dim: 96
+    embeddings: 'cyclical'
+    num_conditions: 7
+    cyclic_conditions: 1
+    relative_angles: True

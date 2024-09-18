@@ -22,6 +22,22 @@ def cartesian_to_cylindrical(xyz):
     # Order makes it easier to break cyclical part off
     return np.concatenate((angle, dist, z), axis=1)
 
+def cylindrical_to_cartesian(coordinate):
+    angle, dist, z = np.split(coordinate,3,axis=1)
+    x = dist * np.cos(angle)
+    y = dist * np.sin(angle)
+    return np.concatenate((x, y, z), axis=1)
+
+def angle_difference(angle1, angle2):
+    diff = angle1 - angle2
+    diff = (diff + np.pi) % (2 * np.pi) - np.pi
+    return diff
+
+def angle_add(angle1, angle2):
+    sum_angle = angle1 + angle2
+    sum_angle = (sum_angle + np.pi) % (2 * np.pi) - np.pi
+    return sum_angle
+
 def build_two_point_clouds(genrtd_pcd, object_pcd):
     pcd_pred = o3d.geometry.PointCloud()
     c_pred = genrtd_pcd.cpu().detach().numpy()

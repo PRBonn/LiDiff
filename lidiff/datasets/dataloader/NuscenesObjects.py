@@ -14,11 +14,34 @@ from nuscenes.utils.data_io import load_bin_file
 from lidiff.utils.three_d_helpers import cartesian_to_cylindrical
 
 class NuscenesObjectsSet(Dataset):
-    def __init__(self, data_dir, split, points_per_object=None, volume_expansion=1., recenter=True, align_objects=False, relative_angles=False):
+    def __init__(
+            self, 
+            data_dir, 
+            split, 
+            points_per_object=None, 
+            volume_expansion=1., 
+            recenter=True, 
+            align_objects=False, 
+            relative_angles=False,
+            excluded_tokens=None,
+            permutation=[],
+        ):
         super().__init__()
         with open(data_dir, 'r') as f:
             self.data_index = json.load(f)[split]
-
+        if isinstance(self.data_index, dict):
+            if excluded_tokens != None:
+                print(f'Before existing object filtering: {len(self.data_index)} objects')
+                self.data_index = [value for key, value in self.data_index.items() if key not in excluded_tokens]
+                print(f'After existing object filtering: {len(self.data_index)} objects')
+            else:
+                self.data_index = list(self.data_index.values())
+    
+        if len(permutation) > 0:
+            print(f'Limiting dataset to {len(permutation)} samples')
+            self.data_index = [self.data_index[i] for i in permutation]
+            print(f'After limiting, length of dataset is {len(self.data_index)}')
+            
         self.nr_data = len(self.data_index)
         self.points_per_object = points_per_object
         self.volume_expansion = volume_expansion
@@ -34,16 +57,14 @@ class NuscenesObjectsSet(Dataset):
         
         class_name = object_json['class']
         points = np.fromfile(object_json['lidar_data_filepath'], dtype=np.float32).reshape((-1, 5)) #(x, y, z, intensity, ring index)
+        mask = np.load(object_json['object_sample_index'])
         center = np.array(object_json['center'])
         size = np.array(object_json['size'])
         rotation_real = np.array(object_json['rotation_real'])
         rotation_imaginary = np.array(object_json['rotation_imaginary'])
-
         orientation = Quaternion(real=rotation_real, imaginary=rotation_imaginary)
-        box = Box(center=center, size=size, orientation=orientation)
-        
-        points_from_object = points_in_box(box, points=points[:,:3].T, wlh_factor=self.volume_expansion)
-        object_points = torch.from_numpy(points[points_from_object])[:,:3]
+
+        object_points = points[mask][:,:3]
 
         if self.points_per_object > 0:
             pcd_object = o3d.geometry.PointCloud()
@@ -58,7 +79,7 @@ class NuscenesObjectsSet(Dataset):
             object_points = object_points[torch.randperm(object_points.shape[0])][:self.points_per_object]
         
         num_points = object_points.shape[0]
-        ring_indexes = torch.zeros_like(object_points)
+        ring_indexes = torch.zeros(object_points.shape[0])
         if self.do_recenter:
             object_points -= center
         
@@ -78,4 +99,4 @@ class NuscenesObjectsSet(Dataset):
         if self.relative_angles:
             center[0] -= yaw
         
-        return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name]
+        return [object_points, center, torch.from_numpy(size), orientation, num_points, ring_indexes, class_name, object_json['instance_token']]

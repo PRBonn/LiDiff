@@ -26,6 +26,21 @@ class NuscenesObjectsDataModule(LightningDataModule):
         # Create datasets
         pass
 
+    def build_dataset(self, split, excluded_tokens=None, permutation=[]):
+        collate = NuscenesObjectCollator(coordinate_type=self.cfg['data']['coordinates'])
+
+        data_set = NuscenesObjectsSet(
+                data_dir=self.cfg['data']['data_dir'], 
+                split=split, 
+                points_per_object=self.cfg['data']['points_per_object'],
+                align_objects=self.cfg['data']['align_objects'],
+                relative_angles=self.cfg['model']['relative_angles'],
+                excluded_tokens=excluded_tokens,
+                permutation=permutation
+            )
+
+        return data_set, collate
+
     def train_dataloader(self):
         collate = NuscenesObjectCollator(coordinate_type=self.cfg['data']['coordinates'])
 
@@ -96,8 +111,9 @@ class NuscenesObjectCollator:
             'orientation': torch.zeros((num_points_tensor.shape[0], 1)),
             'batch_indices': batch_indices,
             'num_points': num_points_tensor,
-            'ring_indexes': torch.vstack(batch[5]),
-            'class': class_mapping
+            'ring_indexes': batch[5],
+            'class': class_mapping,
+            'tokens': batch[-1]
         }
 
 dataloaders = {
