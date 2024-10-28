@@ -106,16 +106,15 @@ def get_ground_truth(pose, cur_scan, seq_map, max_range):
 @click.option('--path', '-p', type=str, default='', help='path to the scan sequence')
 @click.option('--voxel_size', '-v', type=float, default=0.05, help='voxel size')
 @click.option('--max_range', '-m', type=float, default=50, help='max range')
-@click.option('--ckpt_path', '-c', type=str, help='path to the checkpoint for diffusion pipeline')
-@click.option('--diff', '-d', is_flag=True, help='run diffusion pipeline')
-def main(path, voxel_size, max_range, ckpt_path, diff): 
-    diff_completion = DiffCompletion(ckpt_path) if diff else None
+@click.option('--denoising_steps', '-t', type=int, default=50, help='number of denoising steps')
+@click.option('--cond_weight', '-s', type=float, default=6.0, help='conditioning weights')
+@click.option('--diff', '-d', type=str, help='run diffusion pipeline')
+@click.option('--refine', '-r', type=str, help='path to the checkpoint for refinement net')
+def main(path, voxel_size, max_range, denoising_steps, cond_weight, diff, refine): 
+    diff_completion = DiffCompletion(diff, refine, denoising_steps, cond_weight)
 
     poses = load_poses(os.path.join(PATH_DATA, 'calib.txt'), os.path.join(PATH_DATA, 'poses.txt'))
     seq_map = np.load(f'{PATH_DATA}/map_clean.npy')
-
-    if not diff:
-        print(f'Evaluating baseline {path.split("/")[-3]}')
 
     jsd_3d = []
     jsd_bev = []
