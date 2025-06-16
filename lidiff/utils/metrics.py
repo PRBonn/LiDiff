@@ -88,12 +88,14 @@ class CompletionIoU():
         max_range = 50.
         for i, vsize in enumerate(self.voxel_sizes):
             bins = int(2 * max_range / vsize)
-            vox_coords_gt = np.round(np.array(gt.points) / vsize).astype(int)
+            #vox_coords_gt = np.round(np.array(gt.points) / vsize).astype(int)
+            vox_coords_gt = np.array(gt.points)
             hist_gt = np.histogramdd(
                     vox_coords_gt, bins=bins, range=([-max_range,max_range],[-max_range,max_range],[-max_range,max_range])
             )[0].astype(bool).astype(int)
         
-            vox_coords_pred = np.round(np.array(pred.points) / vsize).astype(int)
+            #vox_coords_pred = np.round(np.array(pred.points) / vsize).astype(int)
+            vox_coords_pred = np.array(pred.points)
             hist_pred = np.histogramdd(
                     vox_coords_pred, bins=bins, range=([-max_range,max_range],[-max_range,max_range],[-max_range,max_range])
             )[0].astype(bool).astype(int)
