@@ -77,6 +77,19 @@ You can download the trained model weights and save then to `lidiff/checkpoints/
 - Diffusion model [weights](https://www.ipb.uni-bonn.de/html/projects/lidiff/diff_net.ckpt)
 - Refinement model [weights](https://www.ipb.uni-bonn.de/html/projects/lidiff/refine_net.ckpt)
 
+## Evaluation
+
+Based on this [issue](https://github.com/PRBonn/LiDiff/issues/45), we found a minor bug in our completion metric code where the metric was not computed over the entire point cloud. We have updated the code to fix it, and below we provide the updated results from Table 3 of the paper:
+
+| Method | 0.5 cm | 0.2 cm | 0.1 cm |
+| ----------| -----------|-------------| ----------|
+| PVD | 15.91 | 3.97 | 0.6 | 
+| LMSCNet| 30.83 | 12.09 | 3.65 | 
+|LODE    |  **33.81**  | 16.39      | 5.0      |
+|MID      | 31.58   | 22.72      | 13.14   |
+|LiDiff    | 31.47   | 16.79     | 4.67   |
+|LiDiff (Refined)    | 32.43   | **22.99**      | **13.40**   |
+
 ## Diffusion Scene Completion Pipeline
 
 For running the scene completion inference we provide a pipeline where both the diffusion and refinement network are loaded and used to complete the scene from an input scan. You can run the pipeline with the command:
